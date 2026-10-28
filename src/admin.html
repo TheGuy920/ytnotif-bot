@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>ytnotif-bot</title>
+<style>
+    :root {
+        --bg: #f6f7f9; --card: #fff; --text: #1b1d21; --muted: #6b7280; --border: #e3e5e9;
+        --accent: #e5322d; --accent-text: #fff; --ok: #15803d; --bad: #b91c1c; --chip: #eef0f3;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg: #111317; --card: #1a1d22; --text: #e8eaed; --muted: #9aa0a8; --border: #2b2f36;
+            --accent: #ff4b45; --ok: #4ade80; --bad: #f87171; --chip: #252930;
+        }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+    main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+    h1 { font-size: 22px; margin: 0; }
+    h2 { font-size: 16px; margin: 0 0 12px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
+    input[type=text], input[type=password], textarea {
+        width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+        background: var(--bg); color: var(--text); font: inherit;
+    }
+    textarea { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 110px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .row > * { flex: 1 1 240px; }
+    .checks { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 12px; }
+    .checks label { display: flex; align-items: center; gap: 6px; font-weight: 400; margin: 0; }
+    button {
+        font: inherit; font-size: 14px; padding: 7px 14px; border-radius: 6px; cursor: pointer;
+        border: 1px solid var(--border); background: var(--card); color: var(--text);
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+    button.danger { color: var(--bad); }
+    button:disabled { opacity: .6; cursor: wait; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .channel { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0; border-top: 1px solid var(--border); }
+    .channel:first-of-type { border-top: 0; }
+    .channel .info { min-width: 0; flex: 1 1 320px; }
+    .channel .name { font-weight: 600; }
+    .channel code { font-size: 12px; word-break: break-all; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+    .chip { background: var(--chip); border-radius: 99px; padding: 1px 8px; font-size: 12px; }
+    .ok { color: var(--ok); } .bad { color: var(--bad); }
+    .channel .actions { margin-top: 0; align-items: flex-start; }
+    a { color: inherit; }
+    #toast {
+        position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: calc(100% - 32px);
+        background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px;
+        opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    #toast.show { opacity: 1; }
+    #toast.error { background: var(--bad); color: #fff; }
+    [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+    <header>
+        <h1><a href="/" style="text-decoration:none">ytnotif-bot</a> <span class="muted" style="font-weight:400">admin</span></h1>
+        <span class="muted" id="callback"></span>
+    </header>
+
+    <section class="card" id="login" hidden>
+        <h2>Sign in</h2>
+        <p class="muted">Enter the <code>ADMIN_TOKEN</code> secret you set with wrangler. It's kept in this browser only.</p>
+        <form id="login-form" class="row">
+            <input type="password" id="token" placeholder="Admin token" autocomplete="current-password" required>
+            <button class="primary" style="flex:0 0 auto">Sign in</button>
+        </form>
+    </section>
+
+    <div id="app" hidden>
+        <section class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                <h2 style="margin:0">Tracked channels</h2>
+                <div class="actions" style="margin:0">
+                    <button id="renew">Renew all subscriptions</button>
+                    <button id="logout">Sign out</button>
+                </div>
+            </div>
+            <div id="channels" style="margin-top:8px"></div>
+        </section>
+
+        <section class="card">
+            <h2 id="form-title">Add a channel</h2>
+            <form id="channel-form">
+                <div class="row">
+                    <div>
+                        <label for="f-id">YouTube channel</label>
+                        <input type="text" id="f-id" placeholder="UC… or https://www.youtube.com/channel/UC…" required>
+                    </div>
+                    <div>
+                        <label for="f-name">Name <span class="muted">(optional, looked up if blank)</span></label>
+                        <input type="text" id="f-name" placeholder="My Channel">
+                    </div>
+                </div>
+                <label for="f-webhook">Discord webhook</label>
+                <input type="text" id="f-webhook" placeholder="https://discord.com/api/webhooks/… or a secret name like WEBHOOK_MAIN">
+                <div class="checks">
+                    <label><input type="checkbox" id="f-shorts" checked> Skip Shorts</label>
+                    <label><input type="checkbox" id="f-updates"> Re-post when an announced video is edited</label>
+                </div>
+                <details style="margin-top:12px">
+                    <summary class="muted">Custom message template</summary>
+                    <label for="f-template">Discord payload JSON <span class="muted">(blank = default)</span></label>
+                    <textarea id="f-template" spellcheck="false" placeholder='{ "content": "**{{channelName}}** just uploaded!\n{{videoUrl}}" }'></textarea>
+                    <p class="muted">Placeholders: {{videoId}} {{videoUrl}} {{videoTitle}} {{channelId}} {{channelName}} {{channelUrl}} {{publishedAt}} {{updatedAt}}</p>
+                </details>
+                <div class="actions">
+                    <button class="primary" id="save">Add channel</button>
+                    <button type="button" id="cancel" hidden>Cancel</button>
+                </div>
+            </form>
+        </section>
+    </div>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let token = '';
+try { token = localStorage.getItem('ytnotif-token') || ''; } catch {}
+let channels = [];
+let editing = null;
+let callbackUrl = '';
+
+function toast(msg, error = false) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = 'show' + (error ? ' error' : '');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => (t.className = ''), error ? 6000 : 3000);
+}
+
+async function api(method, path, body) {
+    const res = await fetch('/api' + path, {
+        method,
+        headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { signOut(); throw new Error('Wrong admin token'); }
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    return data;
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+function ago(iso) {
+    const s = (Date.now() - Date.parse(iso)) / 1000;
+    if (s < 90) return 'just now';
+    if (s < 5400) return Math.round(s / 60) + ' min ago';
+    if (s < 129600) return Math.round(s / 3600) + ' h ago';
+    return Math.round(s / 86400) + ' days ago';
+}
+
+function render() {
+    $('callback').textContent = callbackUrl ? 'Callback: ' + callbackUrl : '';
+    if (channels.length === 0) {
+        $('channels').innerHTML = '<p class="muted">No channels yet. Add one below.</p>';
+        return;
+    }
+    $('channels').innerHTML = channels.map((c) => {
+        const sub = c.lastSubscribe;
+        const status = !sub ? '<span class="muted">not subscribed yet</span>'
+            : sub.ok ? `<span class="ok">✓ subscribed ${esc(ago(sub.at))}</span>`
+            : `<span class="bad">✗ ${esc(sub.error || 'subscribe failed')} (${esc(ago(sub.at))})</span>`;
+        return `<div class="channel">
+            <div class="info">
+                <div class="name">${esc(c.name)}</div>
+                <a href="https://www.youtube.com/channel/${esc(c.channelId)}" target="_blank" rel="noopener"><code>${esc(c.channelId)}</code></a>
+                <div class="muted"><code>${esc(c.webhook)}</code></div>
+                <div class="chips">
+                    ${c.filterShorts ? '<span class="chip">skips Shorts</span>' : '<span class="chip">posts Shorts</span>'}
+                    ${c.announceUpdates ? '<span class="chip">re-posts edits</span>' : ''}
+                    ${c.template ? '<span class="chip">custom template</span>' : ''}
+                </div>
+                <div class="muted" style="margin-top:4px">${status}${c.hubStatusUrl ? ` · <a href="${esc(c.hubStatusUrl)}" target="_blank" rel="noopener noreferrer">hub status</a>` : ''}</div>
+            </div>
+            <div class="actions">
+                <button data-act="test" data-id="${esc(c.channelId)}">Test</button>
+                <button data-act="edit" data-id="${esc(c.channelId)}">Edit</button>
+                <button data-act="remove" data-id="${esc(c.channelId)}" class="danger">Remove</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function load() {
+    const data = await api('GET', '/channels');
+    channels = data.channels;
+    callbackUrl = data.callbackUrl;
+    render();
+}
+
+function resetForm() {
+    editing = null;
+    $('channel-form').reset();
+    $('f-id').disabled = false;
+    $('f-webhook').required = true;
+    $('f-webhook').placeholder = 'https://discord.com/api/webhooks/… or a secret name like WEBHOOK_MAIN';
+    $('form-title').textContent = 'Add a channel';
+    $('save').textContent = 'Add channel';
+    $('cancel').hidden = true;
+}
+
+function startEdit(c) {
+    editing = c.channelId;
+    $('f-id').value = c.channelId;
+    $('f-id').disabled = true;
+    $('f-name').value = c.name;
+    // The API masks webhook URLs; leave blank to keep the stored one.
+    $('f-webhook').value = '';
+    $('f-webhook').required = false;
+    $('f-webhook').placeholder = 'Leave blank to keep: ' + c.webhook;
+    $('f-shorts').checked = !!c.filterShorts;
+    $('f-updates').checked = !!c.announceUpdates;
+    $('f-template').value = c.template ? JSON.stringify(c.template, null, 2) : '';
+    $('f-template').closest('details').open = !!c.template;
+    $('form-title').textContent = 'Edit ' + c.name;
+    $('save').textContent = 'Save changes';
+    $('cancel').hidden = false;
+    $('channel-form').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function busy(button, fn) {
+    button.disabled = true;
+    try { await fn(); } catch (err) { toast(err.message, true); } finally { button.disabled = false; }
+}
+
+$('channel-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    busy($('save'), async () => {
+        const id = editing || $('f-id').value.trim();
+        const body = {
+            name: $('f-name').value,
+            filterShorts: $('f-shorts').checked,
+            announceUpdates: $('f-updates').checked,
+            template: $('f-template').value,
+        };
+        if ($('f-webhook').value.trim()) body.webhook = $('f-webhook').value.trim();
+        const match = id.match(/UC[\w-]{22}/);
+        if (!match) throw new Error('Paste a channel ID (UC…) or a youtube.com/channel/UC… URL');
+        const { channel } = await api('PUT', '/channels/' + match[0], body);
+        toast((editing ? 'Saved ' : 'Added ') + channel.name + (channel.lastSubscribe?.ok ? ', hub subscription requested' : ''));
+        resetForm();
+        await load();
+    });
+});
+
+$('cancel').addEventListener('click', resetForm);
+
+$('channels').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const c = channels.find((x) => x.channelId === btn.dataset.id);
+    if (btn.dataset.act === 'edit') return startEdit(c);
+    if (btn.dataset.act === 'test') {
+        return busy(btn, async () => {
+            await api('POST', `/channels/${c.channelId}/test`);
+            toast('Test message sent for ' + c.name);
+        });
+    }
+    if (btn.dataset.act === 'remove' && confirm(`Stop tracking ${c.name}?`)) {
+        busy(btn, async () => {
+            await api('DELETE', '/channels/' + c.channelId);
+            toast('Removed ' + c.name);
+            if (editing === c.channelId) resetForm();
+            await load();
+        });
+    }
+});
+
+$('renew').addEventListener('click', () => busy($('renew'), async () => {
+    const data = await api('POST', '/resubscribe');
+    channels = data.channels;
+    render();
+    const failed = channels.filter((c) => !c.lastSubscribe?.ok).length;
+    toast(failed ? `${failed} subscription(s) failed; see the list` : 'All subscriptions renewed', failed > 0);
+}));
+
+function signOut() {
+    token = '';
+    try { localStorage.removeItem('ytnotif-token'); } catch {}
+    $('app').hidden = true;
+    $('login').hidden = false;
+}
+$('logout').addEventListener('click', signOut);
+
+$('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    token = $('token').value.trim();
+    try {
+        await load();
+        try { localStorage.setItem('ytnotif-token', token); } catch {}
+        $('login').hidden = true;
+        $('app').hidden = false;
+        $('token').value = '';
+    } catch (err) {
+        toast(err.message, true);
+    }
+});
+
+if (token) {
+    load().then(() => ($('app').hidden = false)).catch((err) => { toast(err.message, true); signOut(); });
+} else {
+    $('login').hidden = false;
+}
+</script>
+</body>
+</html>

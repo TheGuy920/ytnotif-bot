@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">
+    <link rel="hub" href="https://pubsubhubbub.appspot.com" />
+    <title>YouTube video feed</title>
+    <entry>
+        <id>yt:video:dQw4w9WgXcQ</id>
+        <yt:videoId>dQw4w9WgXcQ</yt:videoId>
+        <yt:channelId>UCabc123CHANNELID</yt:channelId>
+        <title>My Awesome New Video (edited title)</title>
+        <link rel="alternate" href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" />
+        <author>
+            <name>Cool Channel</name>
+            <uri>https://www.youtube.com/channel/UCabc123CHANNELID</uri>
+        </author>
+        <published>2026-06-28T19:59:30+00:00</published>
+        <updated>2026-06-28T22:15:00+00:00</updated>
+    </entry>
+</feed>

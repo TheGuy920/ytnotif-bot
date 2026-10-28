@@ -1,0 +1,57 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "ytnotif-bot",
+	"main": "src/index.js",
+	"compatibility_date": "2026-09-01",
+	// Hourly: renews hub subscriptions that are more than a day old (leases
+	// last 5 days) and retries failed ones.
+	"triggers": {
+		"crons": [
+			"23 * * * *"
+		]
+	},
+	// Holds the channel list, the seen-video list and last posts. "KV_STORE_ID"
+	// is a placeholder: scripts/inject-kv-id.mjs swaps in the real namespace id
+	// from the KV_STORE_ID env var at build time (here and in "previews"), so
+	// no account-specific id is committed. Left as-is, `wrangler dev` uses
+	// local storage.
+	"kv_namespaces": [
+		{
+			"binding": "STORE",
+			"id": "KV_STORE_ID"
+		}
+	],
+	"vars": {
+		// Days to remember an announced video, counted from its publish date.
+		// Pings for videos older than this are treated as edits and ignored.
+		"SEEN_TTL_DAYS": "30"
+		// Optional. Pins the URL the hub calls. Without it, the hub is told to
+		// call back to whatever host the admin page is opened on, + /notifs.
+		// "CALLBACK_URL": "https://yt.example.com/notifs"
+	},
+	"observability": {
+		"enabled": true
+	},
+	// Worker Previews (Workers Builds runs `wrangler preview` on non-main
+	// branches). They read the production namespace so the status and admin
+	// pages show real data, but READ_ONLY blocks every admin write: a channel
+	// saved from a preview's admin page would otherwise move its hub
+	// subscription to the preview URL. Previews don't run the cron and the
+	// hub never calls them, so nothing else writes.
+	"previews": {
+		"vars": {
+			"SEEN_TTL_DAYS": "30",
+			"READ_ONLY": "true"
+		},
+		"kv_namespaces": [
+			{
+				"binding": "STORE",
+				"id": "KV_STORE_ID"
+			}
+		]
+	}
+	// Secrets (npx wrangler secret put <NAME>):
+	//   ADMIN_TOKEN  required; password for the admin page / API
+	//   HUB_SECRET   optional but recommended; lets the Worker verify notifications come from the hub
+	//   WEBHOOK_*    optional; Discord webhook URLs you'd rather keep out of KV (reference by name)
+}

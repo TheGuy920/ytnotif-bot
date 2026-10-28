@@ -1,0 +1,16 @@
+{
+    "name": "ytnotif-bot",
+    "version": "2.0.0",
+    "private": true,
+    "description": "Cloudflare Worker that turns YouTube PubSubHubbub notifications into Discord webhook posts.",
+    "type": "module",
+    "scripts": {
+        "dev": "wrangler dev --test-scheduled",
+        "deploy": "node scripts/inject-kv-id.mjs wrangler deploy",
+        "tail": "wrangler tail",
+        "test": "node --test test/*.test.js"
+    },
+    "devDependencies": {
+        "wrangler": "^4.155.0"
+    }
+}
