@@ -16,6 +16,10 @@ export default {
         const url = new URL(req.url);
         const path = normalizePath(url.pathname);
 
+        // Worker Previews run without the production KV namespace (see
+        // "previews" in wrangler.jsonc).
+        if (!env.STORE) return text('No KV namespace is bound to this deployment (Worker Previews have none by default).', 503);
+
         if (path === '/admin') return html(ADMIN_HTML, 'no-store');
         if (path.startsWith('/api/')) return handleApi(req, env, path);
 
@@ -32,7 +36,7 @@ export default {
 
     // Hourly: renews hub subscriptions that are due (see `triggers.crons` in wrangler.jsonc).
     async scheduled(event, env, ctx) {
-        await renewSubscriptions(env);
+        if (env.STORE) await renewSubscriptions(env);
     },
 };
 

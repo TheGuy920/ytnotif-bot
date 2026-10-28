@@ -144,6 +144,13 @@ Only code changes need a deploy. Channel changes don't.
 
 Every push to `main` then deploys automatically. Secrets and KV data are kept across deploys.
 
+Pushes to other branches (including PRs) run `wrangler preview` instead, which needs the `previews` block in
+`wrangler.jsonc`. Previews deliberately get **no KV namespace**, so a preview can never change the production
+channel list or move real subscriptions to the preview URL. A preview's pages just say no storage is bound, and
+the build only checks that the Worker deploys. For a fully working preview, create a separate namespace with
+`npx wrangler kv namespace create STORE_preview` and add it under `previews.kv_namespaces` (see the comment in
+`wrangler.jsonc`).
+
 **Option B: GitHub Actions**
 
 Create an API token at **My Profile → API Tokens → Create Token → "Edit Cloudflare Workers"** template. Add it as
@@ -326,6 +333,10 @@ edit pings on old videos. That's why letting entries expire can't cause a re-pos
 - **Deploy fails mentioning the KV namespace.** The `REPLACE_WITH_KV_NAMESPACE_ID` placeholder is still in
   `wrangler.jsonc` (step 2).
 - **Posts show up twice.** The old server is probably still running (step 7).
+- **Workers Builds fails with "missing a `previews` block".** Branch builds run `wrangler preview`, which needs a
+  `previews` block in `wrangler.jsonc`. The block in this repo is meant to stay; if you add vars or bindings,
+  don't leave `<REPLACE_ME>` placeholders in it, because wrangler rejects those too.
+- **A preview URL says "No KV namespace is bound".** Expected; see the previews note in step 6.
 
 ## Development
 

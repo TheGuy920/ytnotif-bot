@@ -3,14 +3,15 @@
 	"name": "ytnotif-bot",
 	"main": "src/index.js",
 	"compatibility_date": "2026-09-01",
-	// Daily hub re-subscribe. Leases last 5 days, so a few missed runs are fine.
+	// Hourly: renews hub subscriptions that are more than a day old (leases
+	// last 5 days) and retries failed ones.
 	"triggers": {
 		"crons": [
-			"17 4 * * *"
+			"23 * * * *"
 		]
 	},
-	// Seen-video list. Create with `npx wrangler kv namespace create SEEN`
-	// and paste the id it prints here.
+	// Holds the channel list, the seen-video list and last posts. Create with
+	// `npx wrangler kv namespace create STORE` and paste the id here.
 	"kv_namespaces": [
 		{
 			"binding": "STORE",
@@ -19,8 +20,8 @@
 		}
 	],
 	"vars": {
-		// Public URL the hub calls. Defaults to the workers.dev URL; swap in a
-		// custom domain (and add it under "routes") if you prefer.
+		// Pins the URL the hub calls. Without it, the hub is told to call back
+		// to whatever host the admin page is opened on, + /notifs.
 		"CALLBACK_URL": "https://ytnotif-bot.theguy920.workers.dev/notifs",
 		// Days to remember an announced video, counted from its publish date.
 		// Pings for videos older than this are treated as edits and ignored.
@@ -28,6 +29,18 @@
 	},
 	"observability": {
 		"enabled": true
+	},
+	// Worker Previews (Workers Builds runs `wrangler preview` on non-main
+	// branches). Previews deliberately get no KV namespace, so a preview
+	// can never touch the production channel list or subscriptions; its
+	// pages just say storage isn't bound. To get a fully working preview,
+	// create a separate namespace (`npx wrangler kv namespace create
+	// STORE_preview`) and add it here as
+	// "kv_namespaces": [{ "binding": "STORE", "id": "<that id>" }].
+	"previews": {
+		"vars": {
+			"SEEN_TTL_DAYS": "30"
+		}
 	}
 	// Secrets (npx wrangler secret put <NAME>):
 	//   ADMIN_TOKEN  required; password for the admin page / API
