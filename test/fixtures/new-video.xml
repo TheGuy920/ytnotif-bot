@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">
+    <link rel="hub" href="https://pubsubhubbub.appspot.com" />
+    <link rel="self"
+        href="https://www.youtube.com/feeds/videos.xml?channel_id=UC9H0HzpKf5JlazkADWnW1Jw" />
+    <title>YouTube video feed</title>
+    <updated>2026-06-28T20:00:00+00:00</updated>
+    <entry>
+        <id>yt:video:HnL77t4IsBY</id>
+        <yt:videoId>HnL77t4IsBY</yt:videoId>
+        <yt:channelId>UC9H0HzpKf5JlazkADWnW1Jw</yt:channelId>
+        <title>Doom Emacs: Why I Chose It Over Vim and Never Looked Back</title>
+        <link rel="alternate" href="https://www.youtube.com/watch?v=HnL77t4IsBY" />
+        <author>
+            <name>bashbunni</name>
+            <uri>https://www.youtube.com/channel/UC9H0HzpKf5JlazkADWnW1Jw</uri>
+        </author>
+        <published>2026-06-28T19:59:30+00:00</published>
+        <updated>2026-06-28T20:00:00+00:00</updated>
+    </entry>
+</feed>

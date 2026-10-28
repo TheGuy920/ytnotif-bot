@@ -1,0 +1,29 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "ytnotif-bot",
+    "main": "src/index.js",
+    "compatibility_date": "2026-09-01",
+
+    // Daily hub re-subscribe. Leases last 5 days, so a few missed runs are fine.
+    "triggers": { "crons": ["17 4 * * *"] },
+
+    // Seen-video list. Create with `npx wrangler kv namespace create SEEN`
+    // and paste the id it prints here.
+    "kv_namespaces": [{ "binding": "SEEN", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+
+    "vars": {
+        // Public URL the hub calls. Defaults to the workers.dev URL; swap in a
+        // custom domain (and add it under "routes") if you prefer.
+        "CALLBACK_URL": "https://ytnotif-bot.YOUR_SUBDOMAIN.workers.dev/notifs",
+        // Days to remember an announced video, counted from its publish date.
+        // Pings for videos older than this are treated as edits and ignored.
+        "SEEN_TTL_DAYS": "30"
+    },
+
+    "observability": { "enabled": true }
+
+    // Secrets (npx wrangler secret put <NAME>):
+    //   WEBHOOK_BASHBUNNI, WEBHOOK_AXOLOT  Discord webhook URLs named in src/config.js
+    //   HUB_SECRET   optional; signs hub notifications so only YouTube can post to you
+    //   ADMIN_TOKEN  optional; enables POST /resubscribe with "Authorization: Bearer <token>"
+}
