@@ -156,6 +156,10 @@ async function resubscribeAll(env) {
     const results = [];
     for (const channel of CHANNELS) {
         const callbackUrl = channel.callbackUrl || env.CALLBACK_URL;
+        if (!callbackUrl || callbackUrl.includes('YOUR_SUBDOMAIN')) {
+            results.push(`[subscribe] ${channel.name}: SKIPPED, set CALLBACK_URL in wrangler.jsonc first`);
+            continue;
+        }
         try {
             await subscribe({ channelId: channel.channelId, callbackUrl, secret: env.HUB_SECRET });
             results.push(`[subscribe] ${channel.name}: accepted (callback ${callbackUrl})`);
