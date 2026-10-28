@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeChannel, parseChannelId, publicChannel, webhookUrl } from '../src/channels.js';
 
-const ID = 'UC9H0HzpKf5JlazkADWnW1Jw';
+const ID = 'UCabcdefghijklmnopqrstuv';
 const HOOK = 'https://discord.com/api/webhooks/123456/abc-DEF_ghi';
 
 test('parses channel IDs from IDs and URLs', () => {
     assert.equal(parseChannelId(ID), ID);
     assert.equal(parseChannelId(`https://www.youtube.com/channel/${ID}/videos`), ID);
-    assert.equal(parseChannelId('@bashbunni'), null);
+    assert.equal(parseChannelId('@somechannel'), null);
     assert.equal(parseChannelId(undefined), null);
 });
 

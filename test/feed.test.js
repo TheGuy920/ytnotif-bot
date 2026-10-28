@@ -8,12 +8,12 @@ const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta
 test('parses a fresh upload notification', () => {
     const [e, ...rest] = parseFeed(fixture('new-video.xml'));
     assert.equal(rest.length, 0);
-    assert.equal(e.videoId, 'HnL77t4IsBY');
-    assert.equal(e.videoUrl, 'https://www.youtube.com/watch?v=HnL77t4IsBY');
-    assert.equal(e.videoTitle, 'Doom Emacs: Why I Chose It Over Vim and Never Looked Back');
-    assert.equal(e.channelId, 'UC9H0HzpKf5JlazkADWnW1Jw');
-    assert.equal(e.channelName, 'bashbunni');
-    assert.equal(e.channelUrl, 'https://www.youtube.com/channel/UC9H0HzpKf5JlazkADWnW1Jw');
+    assert.equal(e.videoId, 'dQw4w9WgXcQ');
+    assert.equal(e.videoUrl, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    assert.equal(e.videoTitle, 'My Awesome New Video');
+    assert.equal(e.channelId, 'UCabc123CHANNELID');
+    assert.equal(e.channelName, 'Cool Channel');
+    assert.equal(e.channelUrl, 'https://www.youtube.com/channel/UCabc123CHANNELID');
     assert.equal(e.publishedAt, '2026-06-28T19:59:30+00:00');
 });
 

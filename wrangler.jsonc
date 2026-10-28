@@ -10,13 +10,15 @@
 			"23 * * * *"
 		]
 	},
-	// Holds the channel list, the seen-video list and last posts. Create with
-	// `npx wrangler kv namespace create STORE` and paste the id here.
+	// Holds the channel list, the seen-video list and last posts. "KV_STORE_ID"
+	// is a placeholder: scripts/inject-kv-id.mjs swaps in the real namespace id
+	// from the KV_STORE_ID env var at build time (here and in "previews"), so
+	// no account-specific id is committed. Left as-is, `wrangler dev` uses
+	// local storage.
 	"kv_namespaces": [
 		{
 			"binding": "STORE",
-			"id": "036d72c041404ea58bf85948c4dba76d",
-			"remote": true
+			"id": "KV_STORE_ID"
 		}
 	],
 	"vars": {
@@ -44,7 +46,7 @@
 		"kv_namespaces": [
 			{
 				"binding": "STORE",
-				"id": "036d72c041404ea58bf85948c4dba76d"
+				"id": "KV_STORE_ID"
 			}
 		]
 	}

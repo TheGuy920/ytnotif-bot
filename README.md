@@ -1,7 +1,7 @@
 # ytnotif-bot
 
-A Cloudflare Worker that turns YouTube upload notifications into Discord posts. It's the serverless replacement
-for the old `yt-pubsub-discord` Node/pm2 service, and it runs on Cloudflare's free plan.
+A Cloudflare Worker that turns YouTube upload notifications into Discord posts. It runs on Cloudflare's free plan
+and has no runtime dependencies.
 
 Channels are managed **at runtime** from a built-in admin page (or its JSON API). Adding a channel subscribes it
 with YouTube's hub immediately, and removing one unsubscribes it. Neither needs a redeploy. The Worker's
@@ -33,7 +33,8 @@ You'll need:
 
 - a free [Cloudflare account](https://dash.cloudflare.com/sign-up)
 - [Node.js](https://nodejs.org) 18 or newer
-- this repo cloned locally: `git clone https://github.com/TheGuy920/ytnotif-bot && cd ytnotif-bot && npm install`
+- your own fork of this repo (needed for auto-deploys in step 6), cloned locally:
+  `git clone https://github.com/<you>/ytnotif-bot && cd ytnotif-bot && npm install`
 
 ### 1. Discord: create the webhooks
 
@@ -55,8 +56,10 @@ npx wrangler login                      # opens a browser to authorize wrangler
 npx wrangler kv namespace create STORE  # prints an id
 ```
 
-Paste the printed `id` into `kv_namespaces` in [`wrangler.jsonc`](wrangler.jsonc), replacing
-`REPLACE_WITH_KV_NAMESPACE_ID`. The id isn't secret, so it's fine to commit.
+Keep the printed `id`; you'll pass it in as `KV_STORE_ID`. It never goes in git: the KV entries in
+[`wrangler.jsonc`](wrangler.jsonc) hold the placeholder `"KV_STORE_ID"`, and
+[`scripts/inject-kv-id.mjs`](scripts/inject-kv-id.mjs) fills in the real id from the `KV_STORE_ID` environment
+variable before each deploy. (`wrangler.jsonc` can't read environment variables itself.)
 
 Set the secrets:
 
@@ -68,7 +71,7 @@ npx wrangler secret put HUB_SECRET    # recommended: any long random string, e.g
 Deploy:
 
 ```bash
-npm run deploy
+KV_STORE_ID=<your namespace id> npm run deploy
 # ... Deployed ytnotif-bot ... https://ytnotif-bot.<your-subdomain>.workers.dev
 ```
 
@@ -138,9 +141,15 @@ Only code changes need a deploy. Channel changes don't.
 **Option A: Cloudflare Workers Builds (recommended, no GitHub secrets needed)**
 
 1. In the Cloudflare dashboard, open **Workers & Pages → ytnotif-bot → Settings → Build**.
-2. Click **Connect**, authorize the Cloudflare GitHub app for `TheGuy920/ytnotif-bot`, and pick the `main`
+2. Click **Connect**, authorize the Cloudflare GitHub app for your fork of this repo, and pick the `main`
    branch.
-3. Keep the default deploy command, `npx wrangler deploy`.
+3. Under **Variables and secrets** (build variables, not the Worker's runtime variables), add `KV_STORE_ID` with
+   your namespace id.
+4. Set the **Build command** to `node scripts/inject-kv-id.mjs`. It runs before the deploy command on every
+   build, production and preview. Keep the default deploy commands (`npx wrangler deploy`, and
+   `npx wrangler preview` for other branches).
+
+If the build variable is missing, the build stops at step 4 with an error saying so, rather than deploying.
 
 Every push to `main` then deploys automatically. Secrets and KV data are kept across deploys.
 
@@ -153,8 +162,8 @@ calls them.
 **Option B: GitHub Actions**
 
 Create an API token at **My Profile → API Tokens → Create Token → "Edit Cloudflare Workers"** template. Add it as
-the repo secret `CLOUDFLARE_API_TOKEN`, and add your account ID (shown on the dashboard's Workers overview page)
-as `CLOUDFLARE_ACCOUNT_ID`. Then add `.github/workflows/deploy.yml`:
+the repo secret `CLOUDFLARE_API_TOKEN`, add your account ID (shown on the dashboard's Workers overview page)
+as `CLOUDFLARE_ACCOUNT_ID`, and add your namespace id as `KV_STORE_ID`. Then add `.github/workflows/deploy.yml`:
 
 ```yaml
 name: deploy
@@ -169,6 +178,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci && npm test
+      - run: node scripts/inject-kv-id.mjs
+        env:
+          KV_STORE_ID: ${{ secrets.KV_STORE_ID }}
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -177,16 +189,6 @@ jobs:
 
 Either way, the included [`test` workflow](.github/workflows/test.yml) runs the unit tests and a dry-run build on
 every PR.
-
-### 7. Retire the old server
-
-The old pm2 service has its own hub subscriptions pointing at its own callback URLs, and they stay active until
-their leases expire (up to 5 days). If both services run at once, channels with "re-post edits" can post twice.
-Once the Worker has posted its first video, stop the old one:
-
-```bash
-pm2 stop yt-pubsub-discord && pm2 delete yt-pubsub-discord
-```
 
 ### Using your own domain (optional)
 
@@ -205,7 +207,7 @@ channel moves its callback to the new host, and the old callback is unsubscribed
 | Swap a Discord webhook      | Admin page → **Edit**, paste the new URL. Leaving the field blank keeps the current one.    |
 | Check subscriptions         | Status line and **hub status** per channel; **Renew all subscriptions** to force a renewal. |
 | Watch what's happening      | `npm run tail`                                                                              |
-| See what's been announced   | `npx wrangler kv key get seen --binding STORE --remote`                                     |
+| See what's been announced   | `npx wrangler kv key get seen --namespace-id $KV_STORE_ID --remote`                         |
 | Force a video to post again | Delete its line from the `seen` key (dashboard: **Storage & Databases → KV → STORE**).      |
 
 ---
@@ -330,9 +332,10 @@ edit pings on old videos. That's why letting entries expire can't cause a re-pos
 - **"Discord rejected the webhook URL".** The webhook was deleted or regenerated. Create a new one.
 - **`Secret WEBHOOK_… is not set`.** A channel references a secret name that doesn't exist. Check with
   `npx wrangler secret list`.
-- **Deploy fails mentioning the KV namespace.** The `REPLACE_WITH_KV_NAMESPACE_ID` placeholder is still in
-  `wrangler.jsonc` (step 2).
-- **Posts show up twice.** The old server is probably still running (step 7).
+- **Build fails with "KV_STORE_ID must be set".** Add the `KV_STORE_ID` build variable (step 6), or prefix a
+  local deploy with `KV_STORE_ID=<id>` (step 2).
+- **A direct `npx wrangler deploy` fails mentioning the KV namespace.** The placeholder wasn't replaced. Use
+  `npm run deploy`, which runs `scripts/inject-kv-id.mjs` first.
 - **Workers Builds fails with "missing a `previews` block".** Branch builds run `wrangler preview`, which needs a
   `previews` block in `wrangler.jsonc`. The block in this repo is meant to stay; if you add vars or bindings,
   don't leave `<REPLACE_ME>` placeholders in it, because wrangler rejects those too.
@@ -343,7 +346,14 @@ edit pings on old videos. That's why letting entries expire can't cause a re-pos
 
 ```bash
 npm test        # unit tests (node:test)
-npm run dev     # local Worker on :8787; /admin works locally, GET /__scheduled runs the cron
+npm run dev     # local Worker on :8787 with local, empty storage; GET /__scheduled runs the cron
+```
+
+To develop against your real data instead, run on Cloudflare with `--remote`. Wrapping the command fills in the id
+for that run and puts the placeholder back afterwards, so nothing account-specific ends up in a commit:
+
+```bash
+KV_STORE_ID=<id> node scripts/inject-kv-id.mjs npx wrangler dev --remote
 ```
 
 For local runs, put secrets in `.dev.vars` (gitignored):
@@ -367,6 +377,12 @@ src/
   discord.js     template rendering + webhook sender
   hub.js         hub subscribe + signature check
   shorts.js      Shorts detection
+scripts/
+  inject-kv-id.mjs  fills the KV namespace id into wrangler.jsonc from KV_STORE_ID
 test/            unit tests + fixture payloads
 channels.example.json   example channel list for a bulk import
 ```
+
+## License
+
+[GPL-3.0](LICENSE)
