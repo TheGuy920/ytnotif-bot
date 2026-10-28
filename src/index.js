@@ -16,9 +16,8 @@ export default {
         const url = new URL(req.url);
         const path = normalizePath(url.pathname);
 
-        // Worker Previews run without the production KV namespace (see
-        // "previews" in wrangler.jsonc).
-        if (!env.STORE) return text('No KV namespace is bound to this deployment (Worker Previews have none by default).', 503);
+        // e.g. a Worker Preview whose "previews" block in wrangler.jsonc has no KV binding.
+        if (!env.STORE) return text('No KV namespace is bound to this deployment.', 503);
 
         if (path === '/admin') return html(ADMIN_HTML, 'no-store');
         if (path.startsWith('/api/')) return handleApi(req, env, path);

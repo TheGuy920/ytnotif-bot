@@ -1,9 +1,4 @@
 [
-    { "name": "bashbunni", "channelId": "UC9H0HzpKf5JlazkADWnW1Jw", "webhook": "WEBHOOK_BASHBUNNI", "filterShorts": true },
-    { "name": "Axolotgames", "channelId": "UCK0_Wks3KCgG54GNnDcVwfA", "webhook": "WEBHOOK_AXOLOT", "filterShorts": false, "announceUpdates": true },
-    { "name": "Z1Gaming", "channelId": "UCMPpVtxOI8RtfurfvCcxgyA", "webhook": "WEBHOOK_AXOLOT", "filterShorts": false, "announceUpdates": true },
-    { "name": "kAN", "channelId": "UCFqmcAvY-lLQHJcfOHJavGQ", "webhook": "WEBHOOK_AXOLOT", "filterShorts": false, "announceUpdates": true },
-    { "name": "ScrapMan", "channelId": "UCcZUc0Wbt4EPVktbB8FrugQ", "webhook": "WEBHOOK_AXOLOT", "filterShorts": false, "announceUpdates": true },
-    { "name": "Kosmo", "channelId": "UCy4okQVD1VIz2mqB6qq_q1A", "webhook": "WEBHOOK_AXOLOT", "filterShorts": false, "announceUpdates": true },
-    { "name": "J0hnbane", "channelId": "UCtSKdz7X4QhaL6LgyOhCViQ", "webhook": "WEBHOOK_AXOLOT", "filterShorts": false, "announceUpdates": true }
+    { "name": "Main channel", "channelId": "UCxxxxxxxxxxxxxxxxxxxxxx", "webhook": "WEBHOOK_MAIN", "filterShorts": true },
+    { "name": "Second channel", "channelId": "UCyyyyyyyyyyyyyyyyyyyyyy", "webhook": "https://discord.com/api/webhooks/123/abc", "filterShorts": false, "announceUpdates": true }
 ]

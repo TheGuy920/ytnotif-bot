@@ -23,6 +23,9 @@ const MAX_RENEWALS_PER_RUN = 40;
 export async function handleApi(req, env, path) {
     if (!env.ADMIN_TOKEN) return json({ error: 'Set the ADMIN_TOKEN secret to enable the admin API.' }, 503);
     if (!(await authorized(req, env))) return json({ error: 'Unauthorized' }, 401);
+    if (env.READ_ONLY === 'true' && req.method !== 'GET') {
+        return json({ error: 'This deployment is read-only (Worker Preview). Make changes on the production URL.' }, 403);
+    }
 
     const origin = new URL(req.url).origin;
     const [, , resource, id, action] = path.split('/'); // /api/<resource>/<id>/<action>

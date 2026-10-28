@@ -104,14 +104,14 @@ Saving adds the channel and asks the hub to subscribe. Then:
   without the admin token.
 
 <details>
-<summary><b>Importing the old server's channels in one go</b></summary>
+<summary><b>Importing many channels in one go</b></summary>
 
-[`channels.example.json`](channels.example.json) lists the 7 channels from the old `config.json`. Their webhooks
-reference secret names instead of URLs, so set those first, then upload the file:
+[`channels.example.json`](channels.example.json) shows the format, with placeholder channel IDs. Each `webhook` is
+either a Discord webhook URL or the name of a Worker secret holding one. Set any secrets you reference first, then
+upload the file:
 
 ```bash
-npx wrangler secret put WEBHOOK_BASHBUNNI
-npx wrangler secret put WEBHOOK_AXOLOT
+npx wrangler secret put WEBHOOK_MAIN
 
 curl -X PUT https://ytnotif-bot.<your-subdomain>.workers.dev/api/channels \
   -H "Authorization: Bearer <ADMIN_TOKEN>" --data @channels.example.json
@@ -125,8 +125,8 @@ curl -X PUT https://ytnotif-bot.<your-subdomain>.workers.dev/api/channels \
 ```bash
 npm run tail
 # [verify] hub.mode=subscribe hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=UC...
-# [notify] [bashbunni] abc123 "New video" published=...
-# [notify] [bashbunni] abc123 Posted to Discord.
+# [notify] [My Channel] abc123 "New video" published=...
+# [notify] [My Channel] abc123 Posted to Discord.
 ```
 
 You can also read the logs in the dashboard under **Workers & Pages → ytnotif-bot → Logs**.
@@ -145,11 +145,10 @@ Only code changes need a deploy. Channel changes don't.
 Every push to `main` then deploys automatically. Secrets and KV data are kept across deploys.
 
 Pushes to other branches (including PRs) run `wrangler preview` instead, which needs the `previews` block in
-`wrangler.jsonc`. Previews deliberately get **no KV namespace**, so a preview can never change the production
-channel list or move real subscriptions to the preview URL. A preview's pages just say no storage is bound, and
-the build only checks that the Worker deploys. For a fully working preview, create a separate namespace with
-`npx wrangler kv namespace create STORE_preview` and add it under `previews.kv_namespaces` (see the comment in
-`wrangler.jsonc`).
+`wrangler.jsonc`. Previews bind the same KV namespace as production so their pages show real data, with
+`READ_ONLY` set: a preview's admin page can list channels but not change them. Without that, saving a channel
+from a preview would move its hub subscription to the preview URL. Previews don't run the cron, and the hub never
+calls them.
 
 **Option B: GitHub Actions**
 
@@ -191,8 +190,8 @@ pm2 stop yt-pubsub-discord && pm2 delete yt-pubsub-discord
 
 ### Using your own domain (optional)
 
-If `theguy920.dev` is on Cloudflare, add **ytnotif-bot → Settings → Domains & Routes → Add → Custom domain**,
-e.g. `yt.theguy920.dev`. Then open the admin page on that domain and click **Renew all subscriptions**. Every
+If your domain is on Cloudflare, add **ytnotif-bot → Settings → Domains & Routes → Add → Custom domain**,
+e.g. `yt.example.com`. Then open the admin page on that domain and click **Renew all subscriptions**. Every
 channel moves its callback to the new host, and the old callback is unsubscribed.
 
 ---
@@ -239,7 +238,7 @@ Channel fields:
 Example:
 
 ```bash
-curl -X PUT https://<host>/api/channels/UC9H0HzpKf5JlazkADWnW1Jw \
+curl -X PUT https://<host>/api/channels/UCxxxxxxxxxxxxxxxxxxxxxx \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -d '{"webhook":"https://discord.com/api/webhooks/123/abc","filterShorts":true}'
 ```
@@ -260,6 +259,7 @@ curl -X PUT https://<host>/api/channels/UC9H0HzpKf5JlazkADWnW1Jw \
 | `ADMIN_TOKEN`   | secret | **Required** for the admin page/API. Without it, they return 503.                        |
 | `HUB_SECRET`    | secret | Recommended. Lets the Worker verify that notifications really come from the hub.         |
 | `WEBHOOK_*`     | secret | Optional. Discord webhook URLs referenced by name from channels.                         |
+| `READ_ONLY`     | var    | `"true"` makes the admin API reject every change. Set for Worker Previews.            |
 | `SEEN_TTL_DAYS` | var    | How long an announced video is remembered, counted from its publish date (default 30).   |
 | `CALLBACK_URL`  | var    | Optional. Pins the hub callback URL instead of using the admin page's host.              |
 
@@ -308,7 +308,7 @@ edit pings on old videos. That's why letting entries expire can't cause a re-pos
 
 - **Notifications:** two KV reads each (channels and seen). KV is written only after a post (seen list plus the
   channel's `last:` key).
-- **Status page:** one KV read plus one per channel, per uncached view. With 7 channels that's about 12,000 views
+- **Status page:** one KV read plus one per channel, per uncached view. With 10 channels that's about 9,000 views
   a day before reaching the free tier's 100k reads.
 - **Cron:** runs hourly but only renews subscriptions older than a day, plus failed ones after an hour. That's at
   most 40 per run, which stays under the free plan's 50-outbound-requests limit and copes with any number of
@@ -336,7 +336,8 @@ edit pings on old videos. That's why letting entries expire can't cause a re-pos
 - **Workers Builds fails with "missing a `previews` block".** Branch builds run `wrangler preview`, which needs a
   `previews` block in `wrangler.jsonc`. The block in this repo is meant to stay; if you add vars or bindings,
   don't leave `<REPLACE_ME>` placeholders in it, because wrangler rejects those too.
-- **A preview URL says "No KV namespace is bound".** Expected; see the previews note in step 6.
+- **A preview's admin page says it's read-only.** Expected; see the previews note in step 6. Make changes on the
+  production URL.
 
 ## Development
 
@@ -367,5 +368,5 @@ src/
   hub.js         hub subscribe + signature check
   shorts.js      Shorts detection
 test/            unit tests + fixture payloads
-channels.example.json   the old server's channels, for a one-time import
+channels.example.json   example channel list for a bulk import
 ```

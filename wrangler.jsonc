@@ -20,27 +20,33 @@
 		}
 	],
 	"vars": {
-		// Pins the URL the hub calls. Without it, the hub is told to call back
-		// to whatever host the admin page is opened on, + /notifs.
-		"CALLBACK_URL": "https://ytnotif-bot.theguy920.workers.dev/notifs",
 		// Days to remember an announced video, counted from its publish date.
 		// Pings for videos older than this are treated as edits and ignored.
 		"SEEN_TTL_DAYS": "30"
+		// Optional. Pins the URL the hub calls. Without it, the hub is told to
+		// call back to whatever host the admin page is opened on, + /notifs.
+		// "CALLBACK_URL": "https://yt.example.com/notifs"
 	},
 	"observability": {
 		"enabled": true
 	},
 	// Worker Previews (Workers Builds runs `wrangler preview` on non-main
-	// branches). Previews deliberately get no KV namespace, so a preview
-	// can never touch the production channel list or subscriptions; its
-	// pages just say storage isn't bound. To get a fully working preview,
-	// create a separate namespace (`npx wrangler kv namespace create
-	// STORE_preview`) and add it here as
-	// "kv_namespaces": [{ "binding": "STORE", "id": "<that id>" }].
+	// branches). They read the production namespace so the status and admin
+	// pages show real data, but READ_ONLY blocks every admin write: a channel
+	// saved from a preview's admin page would otherwise move its hub
+	// subscription to the preview URL. Previews don't run the cron and the
+	// hub never calls them, so nothing else writes.
 	"previews": {
 		"vars": {
-			"SEEN_TTL_DAYS": "30"
-		}
+			"SEEN_TTL_DAYS": "30",
+			"READ_ONLY": "true"
+		},
+		"kv_namespaces": [
+			{
+				"binding": "STORE",
+				"id": "036d72c041404ea58bf85948c4dba76d"
+			}
+		]
 	}
 	// Secrets (npx wrangler secret put <NAME>):
 	//   ADMIN_TOKEN  required; password for the admin page / API
