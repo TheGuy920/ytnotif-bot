@@ -1,30 +1,36 @@
 {
-    "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "ytnotif-bot",
-    "main": "src/index.js",
-    "compatibility_date": "2026-09-01",
-
-    // Hourly: renews hub subscriptions that are more than a day old (leases
-    // last 5 days) and retries failed ones.
-    "triggers": { "crons": ["23 * * * *"] },
-
-    // Holds the channel list and the seen-video list. Create with
-    // `npx wrangler kv namespace create STORE` and paste the id here.
-    "kv_namespaces": [{ "binding": "STORE", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
-
-    "vars": {
-        // Days to remember an announced video, counted from its publish date.
-        // Pings for videos older than this are treated as edits and ignored.
-        "SEEN_TTL_DAYS": "30"
-        // Optional. By default the hub is told to call back to whatever host
-        // you open the admin page on, + /notifs. Set this to pin it instead:
-        // "CALLBACK_URL": "https://yt.example.com/notifs"
-    },
-
-    "observability": { "enabled": true }
-
-    // Secrets (npx wrangler secret put <NAME>):
-    //   ADMIN_TOKEN  required; password for the admin page / API
-    //   HUB_SECRET   optional but recommended; lets the Worker verify notifications come from the hub
-    //   WEBHOOK_*    optional; Discord webhook URLs you'd rather keep out of KV (reference by name)
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "ytnotif-bot",
+	"main": "src/index.js",
+	"compatibility_date": "2026-09-01",
+	// Daily hub re-subscribe. Leases last 5 days, so a few missed runs are fine.
+	"triggers": {
+		"crons": [
+			"17 4 * * *"
+		]
+	},
+	// Seen-video list. Create with `npx wrangler kv namespace create SEEN`
+	// and paste the id it prints here.
+	"kv_namespaces": [
+		{
+			"binding": "STORE",
+			"id": "036d72c041404ea58bf85948c4dba76d",
+			"remote": true
+		}
+	],
+	"vars": {
+		// Public URL the hub calls. Defaults to the workers.dev URL; swap in a
+		// custom domain (and add it under "routes") if you prefer.
+		"CALLBACK_URL": "https://ytnotif-bot.theguy920.workers.dev/notifs",
+		// Days to remember an announced video, counted from its publish date.
+		// Pings for videos older than this are treated as edits and ignored.
+		"SEEN_TTL_DAYS": "30"
+	},
+	"observability": {
+		"enabled": true
+	}
+	// Secrets (npx wrangler secret put <NAME>):
+	//   ADMIN_TOKEN  required; password for the admin page / API
+	//   HUB_SECRET   optional but recommended; lets the Worker verify notifications come from the hub
+	//   WEBHOOK_*    optional; Discord webhook URLs you'd rather keep out of KV (reference by name)
 }
