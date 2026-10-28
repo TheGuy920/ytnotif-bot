@@ -3,20 +3,25 @@
 A Cloudflare Worker that turns YouTube upload notifications into Discord posts. It's the serverless replacement
 for the old `yt-pubsub-discord` Node/pm2 service, and it runs on Cloudflare's free plan.
 
+Channels are managed **at runtime** from a built-in admin page (or its JSON API). Adding a channel subscribes it
+with YouTube's hub immediately, and removing one unsubscribes it. Neither needs a redeploy.
+
 ```
-YouTube ──(WebSub hub)──▶ Worker /notifs ──▶ is it configured? new? not a Short? ──▶ Discord webhook
+                         admin page / API ──▶ channel list (KV) ──▶ subscribe / unsubscribe with the hub
+                                                     │
+YouTube ──(WebSub hub)──▶ Worker /notifs ──▶ tracked? new? not a Short? ──▶ that channel's Discord webhook
                               ▲
-             daily cron ──────┘ re-subscribes every channel with the hub (leases last 5 days)
+              hourly cron ────┘ renews subscriptions older than a day (leases last 5 days)
 ```
 
 For each notification the Worker:
 
 1. checks the hub's signature (if `HUB_SECRET` is set),
 2. replies `204` immediately and does the rest in the background,
-3. looks up the channel in [`src/config.js`](src/config.js),
+3. looks up the channel in the tracked list,
 4. skips videos it has already announced (see [Seen list](#seen-list)),
-5. skips Shorts for channels with `filterShorts`,
-6. renders the message template and posts it to that channel's Discord webhook.
+5. skips Shorts for channels with "Skip Shorts" on,
+6. renders the channel's message template and posts it to the channel's Discord webhook.
 
 ---
 
@@ -35,88 +40,95 @@ Do this for each Discord channel you want posts in:
 1. Open **Server Settings → Integrations → Webhooks → New Webhook**.
 2. Choose the channel, and set the name and avatar you want posts to show. The bot always uses the webhook's own
    name and avatar.
-3. Click **Copy Webhook URL** and keep it somewhere for step 4. It looks like
-   `https://discord.com/api/webhooks/<id>/<token>`.
+3. Click **Copy Webhook URL**. It looks like `https://discord.com/api/webhooks/<id>/<token>`. You'll paste it into
+   the admin page in step 4.
 
 > Treat webhook URLs like passwords: anyone with one can post to your channel. If one leaks, delete the webhook
-> in Discord and create a new one. They never go in git; they're stored as Cloudflare secrets.
+> in Discord and create a new one. They never go in git.
 
-### 2. Configure your channels
-
-Edit [`src/config.js`](src/config.js). Each channel lists its YouTube channel ID and the **name of the secret**
-that holds its Discord webhook URL:
-
-```js
-{ name: 'bashbunni', channelId: 'UC9H0HzpKf5JlazkADWnW1Jw', webhook: 'WEBHOOK_BASHBUNNI', filterShorts: true },
-```
-
-Channels posting to the same Discord channel can share a secret name. To find a channel ID, open the channel
-page, then **About → Share channel → Copy channel ID**. It starts with `UC`.
-
-### 3. Cloudflare: storage and first deploy
+### 2. Cloudflare: storage, secrets, deploy
 
 ```bash
-npx wrangler login                     # opens a browser to authorize wrangler
-npx wrangler kv namespace create SEEN  # prints an id
+npx wrangler login                      # opens a browser to authorize wrangler
+npx wrangler kv namespace create STORE  # prints an id
 ```
 
 Paste the printed `id` into `kv_namespaces` in [`wrangler.jsonc`](wrangler.jsonc), replacing
 `REPLACE_WITH_KV_NAMESPACE_ID`. The id isn't secret, so it's fine to commit.
 
-Then deploy once to get the Worker's URL:
+Set the secrets:
+
+```bash
+npx wrangler secret put ADMIN_TOKEN   # required: the password for the admin page, e.g. `openssl rand -hex 24`
+npx wrangler secret put HUB_SECRET    # recommended: any long random string, e.g. `openssl rand -hex 32`
+```
+
+Deploy:
 
 ```bash
 npm run deploy
 # ... Deployed ytnotif-bot ... https://ytnotif-bot.<your-subdomain>.workers.dev
 ```
 
-### 4. Set the callback URL and secrets
+> **Callback URL:** there's nothing to configure. When you add a channel, the Worker tells the hub to call back
+> to the host you're using the admin page on (`https://<that host>/notifs`) and stores that URL with the
+> channel, so the hourly renewals reuse it. To pin one URL regardless, set `CALLBACK_URL` in `wrangler.jsonc`.
 
-**Yes, the Worker's URL has to be in the config.** The hub needs a callback URL to send notifications to. The
-daily re-subscribe runs from a cron job, which has no incoming request, so the Worker can't find out its own
-public address. Set it in [`wrangler.jsonc`](wrangler.jsonc):
+### 3. Open the admin page
 
-```jsonc
-"CALLBACK_URL": "https://ytnotif-bot.<your-subdomain>.workers.dev/notifs"
-```
+Go to `https://ytnotif-bot.<your-subdomain>.workers.dev/admin` and sign in with your `ADMIN_TOKEN`. The token is
+kept in that browser's local storage. Use **Sign out** on shared machines.
 
-Until this is changed from the placeholder, the Worker won't subscribe anything.
+### 4. Add channels
 
-Next, add the secrets: one per `webhook` name in `src/config.js`, plus two optional ones.
+Fill in the **Add a channel** form:
+
+| Field             | What to enter                                                                                     |
+|-------------------|---------------------------------------------------------------------------------------------------|
+| YouTube channel   | The channel ID (`UC…`) or a `youtube.com/channel/UC…` URL. To find the ID: channel page → **About → Share channel → Copy channel ID**. |
+| Name              | Optional label. If left blank, it's looked up from YouTube.                                       |
+| Discord webhook   | The webhook URL from step 1. It's checked with Discord before saving.                             |
+| Skip Shorts       | On by default.                                                                                    |
+| Re-post edits     | Post again when YouTube re-pings an already-announced video (e.g. a title edit).                  |
+| Custom template   | Optional. See [Templates](#templates).                                                            |
+
+Saving adds the channel and asks the hub to subscribe. Then:
+
+- Click **Test** to send a sample message to that channel's webhook.
+- The status line shows whether the hub accepted the request. **hub status** opens Google's subscription page
+  for that channel, which should say `verified` within a minute or so.
+
+<details>
+<summary><b>Importing the old server's channels in one go</b></summary>
+
+[`channels.example.json`](channels.example.json) lists the 7 channels from the old `config.json`. Their webhooks
+reference secret names instead of URLs, so set those first, then upload the file:
 
 ```bash
-npx wrangler secret put WEBHOOK_BASHBUNNI   # paste the Discord webhook URL when prompted
+npx wrangler secret put WEBHOOK_BASHBUNNI
 npx wrangler secret put WEBHOOK_AXOLOT
-npx wrangler secret put HUB_SECRET          # recommended: any long random string, e.g. `openssl rand -hex 32`
-npx wrangler secret put ADMIN_TOKEN         # optional: lets you trigger a re-subscribe by hand
+
+curl -X PUT https://ytnotif-bot.<your-subdomain>.workers.dev/api/channels \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" --data @channels.example.json
 ```
 
-Secrets stay in place across deploys; set each one once. Then deploy again so the new `CALLBACK_URL` is live:
+`PUT /api/channels` replaces the whole list. Channels missing from the new list are unsubscribed.
+</details>
 
-```bash
-npm run deploy
-```
-
-### 5. Subscribe and check it works
-
-The cron subscribes everything daily at 04:17 UTC. To subscribe right away instead (requires `ADMIN_TOKEN`):
-
-```bash
-curl -X POST https://ytnotif-bot.<your-subdomain>.workers.dev/resubscribe \
-  -H "Authorization: Bearer <your ADMIN_TOKEN>"
-```
-
-You should see one `accepted` line per channel. Watch the logs while the hub verifies each subscription:
+### 5. Watch it work
 
 ```bash
 npm run tail
 # [verify] hub.mode=subscribe hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=UC...
+# [notify] [bashbunni] abc123 "New video" published=...
+# [notify] [bashbunni] abc123 Posted to Discord.
 ```
 
-From then on, each new upload logs a `[notify]` line and shows up in Discord. You can also read the logs in the
-dashboard under **Workers & Pages → ytnotif-bot → Logs**.
+You can also read the logs in the dashboard under **Workers & Pages → ytnotif-bot → Logs**.
 
 ### 6. GitHub: auto-deploy on push (optional)
+
+Only code changes need a deploy. Channel changes don't.
 
 **Option A: Cloudflare Workers Builds (recommended, no GitHub secrets needed)**
 
@@ -125,7 +137,7 @@ dashboard under **Workers & Pages → ytnotif-bot → Logs**.
    branch.
 3. Keep the default deploy command, `npx wrangler deploy`.
 
-Every push to `main` then deploys automatically. Secrets you set with `wrangler secret put` are kept.
+Every push to `main` then deploys automatically. Secrets and KV data are kept across deploys.
 
 **Option B: GitHub Actions**
 
@@ -158,8 +170,8 @@ every PR.
 ### 7. Retire the old server
 
 The old pm2 service has its own hub subscriptions pointing at its own callback URLs, and they stay active until
-their leases expire (up to 5 days). If both services run at once, every video gets posted twice. Once the Worker
-has posted its first video, stop the old one:
+their leases expire (up to 5 days). If both services run at once, channels with "re-post edits" can post twice.
+Once the Worker has posted its first video, stop the old one:
 
 ```bash
 pm2 stop yt-pubsub-discord && pm2 delete yt-pubsub-discord
@@ -167,9 +179,9 @@ pm2 stop yt-pubsub-discord && pm2 delete yt-pubsub-discord
 
 ### Using your own domain (optional)
 
-If `theguy920.dev` is on Cloudflare, you can serve the Worker from it: **ytnotif-bot → Settings → Domains &
-Routes → Add → Custom domain**, e.g. `yt.theguy920.dev`. Then set
-`CALLBACK_URL` to `https://yt.theguy920.dev/notifs` and redeploy.
+If `theguy920.dev` is on Cloudflare, add **ytnotif-bot → Settings → Domains & Routes → Add → Custom domain**,
+e.g. `yt.theguy920.dev`. Then open the admin page on that domain and click **Renew all subscriptions**. Every
+channel moves its callback to the new host, and the old callback is unsubscribed.
 
 ---
 
@@ -177,71 +189,98 @@ Routes → Add → Custom domain**, e.g. `yt.theguy920.dev`. Then set
 
 | I want to…                  | Do this                                                                                     |
 |-----------------------------|---------------------------------------------------------------------------------------------|
-| Add a channel               | Add a line to `src/config.js`, deploy, then call `/resubscribe` or wait for the cron.        |
-| Remove a channel            | Delete its line and deploy. Its subscription lapses within 5 days because the Worker refuses the renewal. |
-| Change the message          | Edit `TEMPLATE` (or a channel's `template`) in `src/config.js` and deploy.                  |
-| Swap a Discord webhook      | `npx wrangler secret put WEBHOOK_…` with the new URL. Takes effect immediately.             |
+| Add / remove a channel      | Admin page. Takes effect immediately.                                                       |
+| Change a message template   | Admin page → **Edit** → *Custom message template*.                                          |
+| Swap a Discord webhook      | Admin page → **Edit**, paste the new URL. Leaving the field blank keeps the current one.    |
+| Check subscriptions         | Status line and **hub status** link per channel; **Renew all subscriptions** to force a renewal. |
 | Watch what's happening      | `npm run tail`                                                                              |
-| See what's been announced   | `npx wrangler kv key get seen --binding SEEN --remote`                                      |
-| Force a video to post again | Delete its line from the `seen` value (via the dashboard's KV editor, or get, edit, then `kv key put`). |
+| See what's been announced   | `npx wrangler kv key get seen --binding STORE --remote`                                     |
+| Force a video to post again | Delete its line from the `seen` key (dashboard: **Storage & Databases → KV → STORE**).      |
 
 ---
 
 ## Reference
 
-### Channel options (`src/config.js`)
+### Admin API
 
-| Field             | Default        | Description                                                                       |
-|-------------------|----------------|-----------------------------------------------------------------------------------|
-| `name`            | (required)     | Label used in logs.                                                               |
-| `channelId`       | (required)     | YouTube channel ID (`UC...`).                                                     |
-| `webhook`         | (required)     | Name of the Worker secret that holds the Discord webhook URL.                     |
-| `filterShorts`    | `true`         | Skip Shorts.                                                                      |
-| `announceUpdates` | `false`        | Re-post when YouTube pings an already-announced video again (e.g. a title edit).  |
-| `callbackUrl`     | `CALLBACK_URL` | Per-channel callback override (e.g. a different domain).                          |
-| `template`        | `TEMPLATE`     | Per-channel Discord payload.                                                      |
+Every request needs `Authorization: Bearer <ADMIN_TOKEN>`. Bodies are JSON.
 
-### Vars (`wrangler.jsonc`)
+| Request                          | Purpose                                                                        |
+|----------------------------------|--------------------------------------------------------------------------------|
+| `GET /api/channels`              | List channels (webhook tokens masked) and the current callback URL.            |
+| `PUT /api/channels/<channelId>`  | Add or update one channel, then subscribe it. Omitted fields keep their value. |
+| `DELETE /api/channels/<channelId>` | Remove a channel and unsubscribe it.                                         |
+| `POST /api/channels/<channelId>/test` | Send a sample message to the channel's webhook.                           |
+| `PUT /api/channels`              | Replace the whole list (array). New channels are subscribed, removed ones unsubscribed. |
+| `POST /api/resubscribe`          | Renew every subscription now.                                                  |
 
-| Var             | Description                                                                                        |
-|-----------------|----------------------------------------------------------------------------------------------------|
-| `CALLBACK_URL`  | Public URL the hub calls. Notifications are accepted on this URL's path (`/notifs`).               |
-| `SEEN_TTL_DAYS` | How long an announced video is remembered, counted from its publish date (default 30).             |
+Channel fields:
 
-### Secrets
+| Field             | Default    | Description                                                                         |
+|-------------------|------------|-------------------------------------------------------------------------------------|
+| `webhook`         | (required) | Discord webhook URL, **or** the name of a Worker secret holding one (e.g. `WEBHOOK_MAIN`). Use a secret name to keep the URL out of KV. |
+| `name`            | looked up  | Label for logs and the admin page.                                                  |
+| `filterShorts`    | `true`     | Skip Shorts.                                                                        |
+| `announceUpdates` | `false`    | Re-post when YouTube pings an already-announced video again.                        |
+| `template`        | default    | Discord payload object (or a JSON string of one). `""` resets it to the default.    |
 
-| Secret          | Required | Description                                                                 |
-|-----------------|----------|-----------------------------------------------------------------------------|
-| `WEBHOOK_*`     | yes      | One per `webhook` name in `src/config.js`; the Discord webhook URL.         |
-| `HUB_SECRET`    | no       | Lets the Worker verify that notifications really come from the hub.         |
-| `ADMIN_TOKEN`   | no       | Enables `POST /resubscribe` with `Authorization: Bearer <token>`.           |
+Example:
 
-### Endpoints
+```bash
+curl -X PUT https://<host>/api/channels/UC9H0HzpKf5JlazkADWnW1Jw \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"webhook":"https://discord.com/api/webhooks/123/abc","filterShorts":true}'
+```
 
-| Request               | Purpose                                                                         |
-|-----------------------|---------------------------------------------------------------------------------|
-| `GET /notifs`         | Hub verification handshake. Only confirms channels that are in the config.      |
-| `POST /notifs`        | Hub notifications.                                                              |
-| `POST /resubscribe`   | Re-subscribe all channels now (needs `ADMIN_TOKEN`).                            |
+### Other endpoints
+
+| Request          | Purpose                                                       |
+|------------------|---------------------------------------------------------------|
+| `GET /admin`     | Admin page (also served at `/`).                              |
+| `GET /notifs`    | Hub verification handshake.                                   |
+| `POST /notifs`   | Hub notifications.                                            |
+
+### Vars and secrets
+
+| Name            | Kind   | Description                                                                              |
+|-----------------|--------|------------------------------------------------------------------------------------------|
+| `ADMIN_TOKEN`   | secret | **Required** for the admin page/API. Without it, they return 503.                        |
+| `HUB_SECRET`    | secret | Recommended. Lets the Worker verify that notifications really come from the hub.         |
+| `WEBHOOK_*`     | secret | Optional. Discord webhook URLs referenced by name from channels.                         |
+| `SEEN_TTL_DAYS` | var    | How long an announced video is remembered, counted from its publish date (default 30).   |
+| `CALLBACK_URL`  | var    | Optional. Pins the hub callback URL instead of using the admin page's host.              |
 
 ### Templates
 
 A template is a Discord webhook payload. Any string in it can use these placeholders: `{{videoId}}`,
 `{{videoUrl}}`, `{{videoTitle}}`, `{{channelId}}`, `{{channelName}}`, `{{channelUrl}}`, `{{publishedAt}}`,
-`{{updatedAt}}`.
+`{{updatedAt}}`. The default is:
 
-```js
-template: {
-    content: 'New video from **{{channelName}}**!',
-    embeds: [{ title: '{{videoTitle}}', url: '{{videoUrl}}', color: 16711680, timestamp: '{{publishedAt}}' }],
-},
+```json
+{ "content": "**{{channelName}}** just uploaded!\n{{videoUrl}}" }
+```
+
+A richer example:
+
+```json
+{
+  "content": "New video from **{{channelName}}**!",
+  "embeds": [{ "title": "{{videoTitle}}", "url": "{{videoUrl}}", "color": 16711680, "timestamp": "{{publishedAt}}" }]
+}
 ```
 
 `username` and `avatar_url` are always stripped, so posts use the webhook's own name and avatar.
 
-### Seen list
+### Storage
 
-The seen list is one plain-text KV value (key `seen`) with one line per announced video:
+Everything lives in the one KV namespace bound as `STORE`:
+
+- **`channels`**: the tracked channels as JSON, including each one's callback URL and last subscribe result.
+- **`seen`**: the seen list (below).
+
+#### Seen list
+
+The seen list is plain text, one line per announced video:
 
 ```
 channelId:videoId:expiresAtUnixSeconds
@@ -251,49 +290,58 @@ The expiry is the video's publish time plus `SEEN_TTL_DAYS`. Expired lines are d
 written. Notifications for videos published more than `SEEN_TTL_DAYS` ago are ignored outright, because they're
 edit pings on old videos. That's why letting entries expire can't cause a re-post.
 
-Each notification does one KV read, and KV is written only after a post, so this stays well inside the free tier
-(100k reads and 1k writes per day).
+### Free plan budget
+
+- **Notifications:** two KV reads each (channels and seen). KV is written only after a post.
+- **Cron:** runs hourly but only renews subscriptions older than a day, plus failed ones after an hour. That's at
+  most 40 per run, which stays under the free plan's 50-outbound-requests limit and copes with any number of
+  channels.
+- **Bulk import:** each channel costs about two outbound requests, so `PUT /api/channels` handles roughly 20 new
+  channels per call.
 
 ---
 
 ## Troubleshooting
 
-- **Nothing posts.** Run `npm run tail` and wait for an upload, or check that `/resubscribe` printed `accepted`.
-  No `[verify]` lines after subscribing usually means `CALLBACK_URL` is wrong.
-- **`Secret WEBHOOK_… is not set`.** The secret name in `src/config.js` doesn't match one you created. Check with
+- **Admin page says "Set the ADMIN_TOKEN secret".** Run `npx wrangler secret put ADMIN_TOKEN`.
+- **A channel's status shows ✗.** The hub rejected the request, or couldn't be reached. Click **Renew all
+  subscriptions** to retry; the cron also retries failed ones hourly.
+- **Status is ✓ but nothing posts.** Open **hub status**. If it isn't `verified`, the hub couldn't reach the
+  callback URL shown at the top of the admin page. Also check `npm run tail` when a video goes up.
+- **"Discord rejected the webhook URL".** The webhook was deleted or regenerated. Create a new one.
+- **`Secret WEBHOOK_… is not set`.** A channel references a secret name that doesn't exist. Check with
   `npx wrangler secret list`.
-- **`Discord webhook failed: 401 Invalid Webhook Token`.** The webhook was deleted or regenerated. Create a new
-  one and `secret put` it again.
-- **`[verify] Refusing subscribe for unconfigured topic`.** The hub is renewing a channel that's no longer in
-  `src/config.js`. This is expected after removing a channel.
 - **Deploy fails mentioning the KV namespace.** The `REPLACE_WITH_KV_NAMESPACE_ID` placeholder is still in
-  `wrangler.jsonc` (step 3).
-- **Every video posts twice.** The old server is probably still running (step 7).
+  `wrangler.jsonc` (step 2).
+- **Posts show up twice.** The old server is probably still running (step 7).
 
 ## Development
 
 ```bash
 npm test        # unit tests (node:test)
-npm run dev     # local Worker on :8787; GET /__scheduled runs the cron handler
+npm run dev     # local Worker on :8787; /admin works locally, GET /__scheduled runs the cron
 ```
 
 For local runs, put secrets in `.dev.vars` (gitignored):
 
 ```
-WEBHOOK_BASHBUNNI=https://discord.com/api/webhooks/...
-CALLBACK_URL=http://localhost:8787/notifs
+ADMIN_TOKEN=dev
+WEBHOOK_MAIN=https://discord.com/api/webhooks/...
 ```
 
 ### Project layout
 
 ```
 src/
-  index.js     request routing, notification handling, cron
-  config.js    channels + message template
-  feed.js      Atom payload parser
-  seen.js      seen-list format
-  discord.js   template rendering + webhook sender
-  hub.js       hub subscribe + signature check
-  shorts.js    Shorts detection
-test/          unit tests + fixture payloads
+  index.js       routing, notification handling, cron entry
+  admin.js       admin API + subscription renewal
+  admin.html     admin page (served at /admin)
+  channels.js    channel storage + validation, default template
+  feed.js        Atom payload parser
+  seen.js        seen-list format
+  discord.js     template rendering + webhook sender
+  hub.js         hub subscribe + signature check
+  shorts.js      Shorts detection
+test/            unit tests + fixture payloads
+channels.example.json   the old server's channels, for a one-time import
 ```

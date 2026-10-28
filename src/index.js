@@ -1,10 +1,13 @@
-import { CHANNELS, TEMPLATE } from './config.js';
+import { loadChannels, webhookUrl, TEMPLATE } from './channels.js';
+import { handleApi, renewSubscriptions } from './admin.js';
 import { isFeed, parseFeed } from './feed.js';
 import { SEEN_KEY, parseSeen, serializeSeen, seenKey, nowSec } from './seen.js';
 import { render, sendDiscordMessage } from './discord.js';
-import { subscribe, verifySignature, channelIdFromTopic } from './hub.js';
+import { verifySignature, channelIdFromTopic } from './hub.js';
 import { isShort } from './shorts.js';
+import ADMIN_HTML from './admin.html';
 
+const NOTIFY_PATH = '/notifs';
 const MAX_BODY_BYTES = 1024 * 1024;
 
 export default {
@@ -12,22 +15,20 @@ export default {
         const url = new URL(req.url);
         const path = normalizePath(url.pathname);
 
-        if (path === '/resubscribe' && req.method === 'POST') {
-            if (!env.ADMIN_TOKEN || req.headers.get('authorization') !== `Bearer ${env.ADMIN_TOKEN}`) {
-                return text('Forbidden', 403);
-            }
-            return text((await resubscribeAll(env)).join('\n') + '\n');
+        if (path === '/' || path === '/admin') {
+            return new Response(ADMIN_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
         }
+        if (path.startsWith('/api/')) return handleApi(req, env, path);
 
-        if (!callbackPaths(env).has(path)) return text('Not Found', 404);
+        if (path !== NOTIFY_PATH && path !== callbackPath(env)) return text('Not Found', 404);
         if (req.method === 'GET') return handleVerification(url);
         if (req.method === 'POST') return handleNotification(req, env, ctx);
         return text('Method Not Allowed', 405, { Allow: 'GET, POST' });
     },
 
-    // Renews every channel's hub subscription (see `triggers.crons` in wrangler.jsonc).
+    // Hourly: renews hub subscriptions that are due (see `triggers.crons` in wrangler.jsonc).
     async scheduled(event, env, ctx) {
-        for (const line of await resubscribeAll(env)) console.log(line);
+        await renewSubscriptions(env);
     },
 };
 
@@ -40,12 +41,11 @@ function handleVerification(url) {
     if (!challenge || (mode !== 'subscribe' && mode !== 'unsubscribe')) {
         return text('Bad Request: missing/invalid hub.mode or hub.challenge', 400);
     }
-    // Only confirm subscriptions for channels we still have configured, so
-    // channels removed from config stop renewing.
-    if (mode === 'subscribe' && !findChannel(channelIdFromTopic(topic))) {
-        console.log(`[verify] Refusing subscribe for unconfigured topic ${topic}`);
-        return text('Not Found', 404);
-    }
+    // We only send subscribe requests for tracked channels, and notifications
+    // for anything else are ignored, so any YouTube topic can be confirmed.
+    // (Checking the channel list here would race KV propagation right after
+    // a channel is added.)
+    if (!channelIdFromTopic(topic)) return text('Not Found', 404);
     return text(challenge);
 }
 
@@ -79,15 +79,16 @@ async function processEntries(entries, env) {
     }
 
     const now = nowSec();
-    const ttl = Number(env.SEEN_TTL_DAYS || 30) * 86400;
-    const seen = parseSeen(await env.SEEN.get(SEEN_KEY), now);
+    const ttlDays = Number(env.SEEN_TTL_DAYS || 30);
+    const [channels, seenText] = await Promise.all([loadChannels(env), env.STORE.get(SEEN_KEY)]);
+    const seen = parseSeen(seenText, now);
     const added = new Map();
 
     for (const entry of entries) {
-        const channel = findChannel(entry.channelId);
+        const channel = channels.find((c) => c.channelId === entry.channelId);
         const tag = `[notify] [${channel?.name ?? entry.channelId}] ${entry.videoId}`;
         if (!channel) {
-            console.log(`${tag} Skipping: channel not configured.`);
+            console.log(`${tag} Skipping: channel not tracked.`);
             continue;
         }
         console.log(`${tag} "${entry.videoTitle}" published=${entry.publishedAt} updated=${entry.updatedAt}`);
@@ -95,9 +96,9 @@ async function processEntries(entries, env) {
         // Expire the seen line TTL after publishing. Anything published longer
         // ago than that is an edit ping on an old video, never a new upload.
         const published = Math.floor(Date.parse(entry.publishedAt) / 1000) || now;
-        const expires = published + ttl;
+        const expires = published + ttlDays * 86400;
         if (expires <= now) {
-            console.log(`${tag} Skipping: published over ${env.SEEN_TTL_DAYS || 30} days ago (edit ping).`);
+            console.log(`${tag} Skipping: published over ${ttlDays} days ago (edit ping).`);
             continue;
         }
 
@@ -117,14 +118,14 @@ async function processEntries(entries, env) {
             if (short === null) console.log(`${tag} Couldn't tell if it's a Short; allowing.`);
         }
 
-        const webhookUrl = env[channel.webhook];
-        if (!webhookUrl) {
+        const url = webhookUrl(channel, env);
+        if (!url) {
             console.error(`${tag} Secret ${channel.webhook} is not set; can't post.`);
             continue;
         }
 
         try {
-            await sendDiscordMessage(webhookUrl, render(channel.template ?? TEMPLATE, entry));
+            await sendDiscordMessage(url, render(channel.template ?? TEMPLATE, entry));
             console.log(`${tag} Posted to Discord.`);
             added.set(key, expires);
         } catch (err) {
@@ -139,10 +140,10 @@ async function processEntries(entries, env) {
 // parallel isn't clobbered, then merges our additions in.
 async function saveSeen(env, added) {
     for (let attempt = 1; ; attempt++) {
-        const current = parseSeen(await env.SEEN.get(SEEN_KEY));
+        const current = parseSeen(await env.STORE.get(SEEN_KEY));
         for (const [key, expires] of added) current.set(key, expires);
         try {
-            await env.SEEN.put(SEEN_KEY, serializeSeen(current));
+            await env.STORE.put(SEEN_KEY, serializeSeen(current));
             return;
         } catch (err) {
             // KV allows ~1 write/sec per key; back off once and retry.
@@ -152,36 +153,12 @@ async function saveSeen(env, added) {
     }
 }
 
-async function resubscribeAll(env) {
-    const results = [];
-    for (const channel of CHANNELS) {
-        const callbackUrl = channel.callbackUrl || env.CALLBACK_URL;
-        if (!callbackUrl || callbackUrl.includes('YOUR_SUBDOMAIN')) {
-            results.push(`[subscribe] ${channel.name}: SKIPPED, set CALLBACK_URL in wrangler.jsonc first`);
-            continue;
-        }
-        try {
-            await subscribe({ channelId: channel.channelId, callbackUrl, secret: env.HUB_SECRET });
-            results.push(`[subscribe] ${channel.name}: accepted (callback ${callbackUrl})`);
-        } catch (err) {
-            results.push(`[subscribe] ${channel.name}: FAILED ${err.message}`);
-        }
+function callbackPath(env) {
+    try {
+        return normalizePath(new URL(env.CALLBACK_URL).pathname);
+    } catch {
+        return NOTIFY_PATH;
     }
-    return results;
-}
-
-function findChannel(channelId) {
-    return channelId ? CHANNELS.find((c) => c.channelId === channelId) : undefined;
-}
-
-function callbackPaths(env) {
-    const paths = new Set();
-    for (const c of CHANNELS) {
-        try {
-            paths.add(normalizePath(new URL(c.callbackUrl || env.CALLBACK_URL).pathname));
-        } catch { }
-    }
-    return paths;
 }
 
 function normalizePath(p) {
