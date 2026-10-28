@@ -4,7 +4,7 @@
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
-function decode(s) {
+export function decode(s) {
     return s
         .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
         .replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e) => {

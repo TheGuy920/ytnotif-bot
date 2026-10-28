@@ -95,8 +95,9 @@ Fill in the **Add a channel** form:
 Saving adds the channel and asks the hub to subscribe. Then:
 
 - Click **Test** to send a sample message to that channel's webhook.
-- The status line shows whether the hub accepted the request. **hub status** opens Google's subscription page
-  for that channel, which should say `verified` within a minute or so.
+- The status line shows whether the hub accepted the request. Click **hub status** to see what Google's hub
+  reports for that subscription; within a minute or so its state should be `verified`. The Worker fetches this
+  for you and includes `HUB_SECRET`, which the hub requires to show a secret-protected subscription.
 
 <details>
 <summary><b>Importing the old server's channels in one go</b></summary>
@@ -192,7 +193,7 @@ channel moves its callback to the new host, and the old callback is unsubscribed
 | Add / remove a channel      | Admin page. Takes effect immediately.                                                       |
 | Change a message template   | Admin page → **Edit** → *Custom message template*.                                          |
 | Swap a Discord webhook      | Admin page → **Edit**, paste the new URL. Leaving the field blank keeps the current one.    |
-| Check subscriptions         | Status line and **hub status** link per channel; **Renew all subscriptions** to force a renewal. |
+| Check subscriptions         | Status line and **hub status** per channel; **Renew all subscriptions** to force a renewal. |
 | Watch what's happening      | `npm run tail`                                                                              |
 | See what's been announced   | `npx wrangler kv key get seen --binding STORE --remote`                                     |
 | Force a video to post again | Delete its line from the `seen` key (dashboard: **Storage & Databases → KV → STORE**).      |
@@ -211,6 +212,7 @@ Every request needs `Authorization: Bearer <ADMIN_TOKEN>`. Bodies are JSON.
 | `PUT /api/channels/<channelId>`  | Add or update one channel, then subscribe it. Omitted fields keep their value. |
 | `DELETE /api/channels/<channelId>` | Remove a channel and unsubscribe it.                                         |
 | `POST /api/channels/<channelId>/test` | Send a sample message to the channel's webhook.                           |
+| `GET /api/channels/<channelId>/hub` | The hub's subscription details for the channel, as plain text.              |
 | `PUT /api/channels`              | Replace the whole list (array). New channels are subscribed, removed ones unsubscribed. |
 | `POST /api/resubscribe`          | Renew every subscription now.                                                  |
 
@@ -308,6 +310,9 @@ edit pings on old videos. That's why letting entries expire can't cause a re-pos
   subscriptions** to retry; the cron also retries failed ones hourly.
 - **Status is ✓ but nothing posts.** Open **hub status**. If it isn't `verified`, the hub couldn't reach the
   callback URL shown at the top of the admin page. Also check `npm run tail` when a video goes up.
+- **"The specified secret is incorrect" on Google's hub page.** You opened the hub's page directly. Subscriptions
+  made with `HUB_SECRET` only show their details when that secret is supplied, so use **hub status** in the
+  admin page instead, or paste the secret into the page's Secret field.
 - **"Discord rejected the webhook URL".** The webhook was deleted or regenerated. Create a new one.
 - **`Secret WEBHOOK_… is not set`.** A channel references a secret name that doesn't exist. Check with
   `npx wrangler secret list`.

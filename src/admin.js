@@ -10,7 +10,7 @@ import {
     webhookUrl,
     TEMPLATE,
 } from './channels.js';
-import { subscribe } from './hub.js';
+import { subscribe, subscriptionDetails } from './hub.js';
 import { render, sendDiscordMessage } from './discord.js';
 
 // Renewal policy for the hourly cron. The free plan allows 50 outbound
@@ -37,6 +37,9 @@ export async function handleApi(req, env, path) {
         }
         if (resource === 'channels' && id && action === 'test' && req.method === 'POST') {
             return await testChannel(env, id);
+        }
+        if (resource === 'channels' && id && action === 'hub' && req.method === 'GET') {
+            return await hubDetails(env, id);
         }
         if (resource === 'resubscribe' && req.method === 'POST') {
             return json({ channels: (await renewSubscriptions(env, { force: true, origin })).map(publicChannel) });
@@ -156,6 +159,18 @@ async function testChannel(env, rawId) {
         throw new UserError(err.message);
     }
     return json({ sent: true });
+}
+
+async function hubDetails(env, rawId) {
+    const id = parseChannelId(decodeURIComponent(rawId));
+    const channel = (await loadChannels(env)).find((c) => c.channelId === id);
+    if (!channel) return json({ error: 'Channel not found' }, 404);
+    if (!channel.callbackUrl) throw new UserError('Not subscribed yet');
+    try {
+        return json(await subscriptionDetails({ channelId: id, callbackUrl: channel.callbackUrl, secret: env.HUB_SECRET }));
+    } catch (err) {
+        throw new UserError(`Couldn't reach the hub: ${err.message}`);
+    }
 }
 
 // Called by the cron (only channels due for renewal) and by

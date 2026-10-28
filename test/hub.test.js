@@ -17,3 +17,13 @@ test('topic round-trip', () => {
     assert.equal(channelIdFromTopic(topicFor('UCabc')), 'UCabc');
     assert.equal(channelIdFromTopic('not a url'), null);
 });
+
+test('htmlToText flattens the hub details page', async () => {
+    const { htmlToText } = await import('../src/hub.js');
+    const html = `<html><head><title>x</title><style>td{}</style></head><body>
+      <h1>Subscription details</h1>
+      <form><input name="hub.secret" value="s3cret"></form>
+      <table><tr><td>State</td><td>verified</td></tr>
+      <tr><td>Expiration time</td><td>2026-11-02 &amp; later</td></tr></table></body></html>`;
+    assert.equal(htmlToText(html), 'Subscription details\nState verified\nExpiration time 2026-11-02 & later');
+});
