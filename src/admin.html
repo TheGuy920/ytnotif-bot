@@ -51,10 +51,6 @@
     .chip { background: var(--chip); border-radius: 99px; padding: 1px 8px; font-size: 12px; }
     .ok { color: var(--ok); } .bad { color: var(--bad); }
     .channel .actions { margin-top: 0; align-items: flex-start; }
-    pre.hub {
-        margin: 8px 0 0; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-        font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto;
-    }
     a { color: inherit; }
     #toast {
         position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: calc(100% - 32px);
@@ -69,7 +65,7 @@
 <body>
 <main>
     <header>
-        <h1>ytnotif-bot</h1>
+        <h1><a href="/" style="text-decoration:none">ytnotif-bot</a> <span class="muted" style="font-weight:400">admin</span></h1>
         <span class="muted" id="callback"></span>
     </header>
 
@@ -188,8 +184,7 @@ function render() {
                     ${c.announceUpdates ? '<span class="chip">re-posts edits</span>' : ''}
                     ${c.template ? '<span class="chip">custom template</span>' : ''}
                 </div>
-                <div class="muted" style="margin-top:4px">${status}${c.callbackUrl ? ` · <a href="#" data-act="hub" data-id="${esc(c.channelId)}">hub status</a>` : ''}</div>
-                <pre class="hub" id="hub-${esc(c.channelId)}" hidden></pre>
+                <div class="muted" style="margin-top:4px">${status}${c.hubStatusUrl ? ` · <a href="${esc(c.hubStatusUrl)}" target="_blank" rel="noopener noreferrer">hub status</a>` : ''}</div>
             </div>
             <div class="actions">
                 <button data-act="test" data-id="${esc(c.channelId)}">Test</button>
@@ -265,19 +260,9 @@ $('channel-form').addEventListener('submit', (e) => {
 $('cancel').addEventListener('click', resetForm);
 
 $('channels').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-act]');
+    const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const c = channels.find((x) => x.channelId === btn.dataset.id);
-    if (btn.dataset.act === 'hub') {
-        e.preventDefault();
-        const pre = $('hub-' + c.channelId);
-        if (!pre.hidden) return (pre.hidden = true);
-        pre.hidden = false;
-        pre.textContent = 'Asking the hub…';
-        return api('GET', `/channels/${c.channelId}/hub`)
-            .then((d) => (pre.textContent = d.text || `(empty response, HTTP ${d.status})`))
-            .catch((err) => (pre.textContent = err.message));
-    }
     if (btn.dataset.act === 'edit') return startEdit(c);
     if (btn.dataset.act === 'test') {
         return busy(btn, async () => {

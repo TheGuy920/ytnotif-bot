@@ -1,4 +1,5 @@
-import { loadChannels, webhookUrl, TEMPLATE } from './channels.js';
+import { loadChannels, webhookUrl, lastPostKey, TEMPLATE } from './channels.js';
+import { renderStatus } from './status.js';
 import { handleApi, renewSubscriptions } from './admin.js';
 import { isFeed, parseFeed } from './feed.js';
 import { SEEN_KEY, parseSeen, serializeSeen, seenKey, nowSec } from './seen.js';
@@ -15,15 +16,18 @@ export default {
         const url = new URL(req.url);
         const path = normalizePath(url.pathname);
 
-        if (path === '/' || path === '/admin') {
-            return new Response(ADMIN_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-        }
+        if (path === '/admin') return html(ADMIN_HTML, 'no-store');
         if (path.startsWith('/api/')) return handleApi(req, env, path);
 
-        if (path !== NOTIFY_PATH && path !== callbackPath(env)) return text('Not Found', 404);
-        if (req.method === 'GET') return handleVerification(url);
-        if (req.method === 'POST') return handleNotification(req, env, ctx);
-        return text('Method Not Allowed', 405, { Allow: 'GET, POST' });
+        if (path === NOTIFY_PATH || path === callbackPath(env)) {
+            if (req.method === 'GET') return handleVerification(url);
+            if (req.method === 'POST') return handleNotification(req, env, ctx);
+            return text('Method Not Allowed', 405, { Allow: 'GET, POST' });
+        }
+
+        // Everything else is the public status page.
+        if (req.method !== 'GET' && req.method !== 'HEAD') return text('Method Not Allowed', 405, { Allow: 'GET' });
+        return html(await renderStatus(env), 'public, max-age=60');
     },
 
     // Hourly: renews hub subscriptions that are due (see `triggers.crons` in wrangler.jsonc).
@@ -128,6 +132,16 @@ async function processEntries(entries, env) {
             await sendDiscordMessage(url, render(channel.template ?? TEMPLATE, entry));
             console.log(`${tag} Posted to Discord.`);
             added.set(key, expires);
+            await env.STORE.put(
+                lastPostKey(entry.channelId),
+                JSON.stringify({
+                    videoId: entry.videoId,
+                    title: entry.videoTitle,
+                    url: entry.videoUrl,
+                    publishedAt: entry.publishedAt,
+                    postedAt: new Date().toISOString(),
+                })
+            ).catch((err) => console.error(`${tag} Couldn't record last post:`, err.message));
         } catch (err) {
             console.error(`${tag} Failed to post:`, err.message);
         }
@@ -163,6 +177,10 @@ function callbackPath(env) {
 
 function normalizePath(p) {
     return p.replace(/\/+$/, '') || '/';
+}
+
+function html(body, cacheControl) {
+    return new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': cacheControl } });
 }
 
 function text(body, status = 200, headers = {}) {

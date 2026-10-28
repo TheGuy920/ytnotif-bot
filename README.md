@@ -4,7 +4,9 @@ A Cloudflare Worker that turns YouTube upload notifications into Discord posts. 
 for the old `yt-pubsub-discord` Node/pm2 service, and it runs on Cloudflare's free plan.
 
 Channels are managed **at runtime** from a built-in admin page (or its JSON API). Adding a channel subscribes it
-with YouTube's hub immediately, and removing one unsubscribes it. Neither needs a redeploy.
+with YouTube's hub immediately, and removing one unsubscribes it. Neither needs a redeploy. The Worker's
+homepage is a public status page listing every tracked channel, its subscription health, and the last video
+posted.
 
 ```
                          admin page / API ──▶ channel list (KV) ──▶ subscribe / unsubscribe with the hub
@@ -95,9 +97,11 @@ Fill in the **Add a channel** form:
 Saving adds the channel and asks the hub to subscribe. Then:
 
 - Click **Test** to send a sample message to that channel's webhook.
-- The status line shows whether the hub accepted the request. Click **hub status** to see what Google's hub
-  reports for that subscription; within a minute or so its state should be `verified`. The Worker fetches this
-  for you and includes `HUB_SECRET`, which the hub requires to show a secret-protected subscription.
+- The status line shows whether the hub accepted the request. Click **hub status** to open Google's page for that
+  subscription; within a minute or so its state should be `verified`. The link includes `HUB_SECRET`, because the
+  hub only shows a secret-protected subscription to someone who supplies the secret. Don't share that link.
+- The Worker's homepage (`https://ytnotif-bot.<your-subdomain>.workers.dev/`) shows the same health for everyone,
+  without the admin token.
 
 <details>
 <summary><b>Importing the old server's channels in one go</b></summary>
@@ -208,11 +212,10 @@ Every request needs `Authorization: Bearer <ADMIN_TOKEN>`. Bodies are JSON.
 
 | Request                          | Purpose                                                                        |
 |----------------------------------|--------------------------------------------------------------------------------|
-| `GET /api/channels`              | List channels (webhook tokens masked) and the current callback URL.            |
+| `GET /api/channels`              | List channels (webhook tokens masked, plus a `hubStatusUrl` that includes `HUB_SECRET`) and the current callback URL. |
 | `PUT /api/channels/<channelId>`  | Add or update one channel, then subscribe it. Omitted fields keep their value. |
 | `DELETE /api/channels/<channelId>` | Remove a channel and unsubscribe it.                                         |
 | `POST /api/channels/<channelId>/test` | Send a sample message to the channel's webhook.                           |
-| `GET /api/channels/<channelId>/hub` | The hub's subscription details for the channel, as plain text.              |
 | `PUT /api/channels`              | Replace the whole list (array). New channels are subscribed, removed ones unsubscribed. |
 | `POST /api/resubscribe`          | Renew every subscription now.                                                  |
 
@@ -238,9 +241,10 @@ curl -X PUT https://<host>/api/channels/UC9H0HzpKf5JlazkADWnW1Jw \
 
 | Request          | Purpose                                                       |
 |------------------|---------------------------------------------------------------|
-| `GET /admin`     | Admin page (also served at `/`).                              |
+| `GET /admin`     | Admin page.                                                   |
 | `GET /notifs`    | Hub verification handshake.                                   |
 | `POST /notifs`   | Hub notifications.                                            |
+| `GET` anything else | Public status page: channel names, subscription health, last post. Never shows webhooks or secrets. Cached for 60 s. |
 
 ### Vars and secrets
 
@@ -279,6 +283,7 @@ Everything lives in the one KV namespace bound as `STORE`:
 
 - **`channels`**: the tracked channels as JSON, including each one's callback URL and last subscribe result.
 - **`seen`**: the seen list (below).
+- **`last:<channelId>`**: the last video posted for each channel, shown on the status page.
 
 #### Seen list
 
@@ -294,7 +299,10 @@ edit pings on old videos. That's why letting entries expire can't cause a re-pos
 
 ### Free plan budget
 
-- **Notifications:** two KV reads each (channels and seen). KV is written only after a post.
+- **Notifications:** two KV reads each (channels and seen). KV is written only after a post (seen list plus the
+  channel's `last:` key).
+- **Status page:** one KV read plus one per channel, per uncached view. With 7 channels that's about 12,000 views
+  a day before reaching the free tier's 100k reads.
 - **Cron:** runs hourly but only renews subscriptions older than a day, plus failed ones after an hour. That's at
   most 40 per run, which stays under the free plan's 50-outbound-requests limit and copes with any number of
   channels.
@@ -310,9 +318,8 @@ edit pings on old videos. That's why letting entries expire can't cause a re-pos
   subscriptions** to retry; the cron also retries failed ones hourly.
 - **Status is ✓ but nothing posts.** Open **hub status**. If it isn't `verified`, the hub couldn't reach the
   callback URL shown at the top of the admin page. Also check `npm run tail` when a video goes up.
-- **"The specified secret is incorrect" on Google's hub page.** You opened the hub's page directly. Subscriptions
-  made with `HUB_SECRET` only show their details when that secret is supplied, so use **hub status** in the
-  admin page instead, or paste the secret into the page's Secret field.
+- **"The specified secret is incorrect" on Google's hub page.** The URL is missing `&hub.secret=<HUB_SECRET>`.
+  The admin page's **hub status** link adds it for you.
 - **"Discord rejected the webhook URL".** The webhook was deleted or regenerated. Create a new one.
 - **`Secret WEBHOOK_… is not set`.** A channel references a secret name that doesn't exist. Check with
   `npx wrangler secret list`.
@@ -341,6 +348,7 @@ src/
   index.js       routing, notification handling, cron entry
   admin.js       admin API + subscription renewal
   admin.html     admin page (served at /admin)
+  status.js      public status page (every other GET)
   channels.js    channel storage + validation, default template
   feed.js        Atom payload parser
   seen.js        seen-list format

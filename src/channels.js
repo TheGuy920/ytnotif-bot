@@ -14,6 +14,10 @@
 
 export const CHANNELS_KEY = 'channels';
 
+// Per-channel key holding the last video posted to Discord, for the status
+// page. Kept separate from `channels` so posting never rewrites the list.
+export const lastPostKey = (channelId) => `last:${channelId}`;
+
 export const TEMPLATE = {
     content: '**{{channelName}}** just uploaded!\n{{videoUrl}}',
 };

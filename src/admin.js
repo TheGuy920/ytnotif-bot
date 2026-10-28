@@ -9,8 +9,9 @@ import {
     publicChannel,
     webhookUrl,
     TEMPLATE,
+    lastPostKey,
 } from './channels.js';
-import { subscribe, subscriptionDetails } from './hub.js';
+import { subscribe, subscriptionDetailsUrl } from './hub.js';
 import { render, sendDiscordMessage } from './discord.js';
 
 // Renewal policy for the hourly cron. The free plan allows 50 outbound
@@ -38,11 +39,8 @@ export async function handleApi(req, env, path) {
         if (resource === 'channels' && id && action === 'test' && req.method === 'POST') {
             return await testChannel(env, id);
         }
-        if (resource === 'channels' && id && action === 'hub' && req.method === 'GET') {
-            return await hubDetails(env, id);
-        }
         if (resource === 'resubscribe' && req.method === 'POST') {
-            return json({ channels: (await renewSubscriptions(env, { force: true, origin })).map(publicChannel) });
+            return json({ channels: (await renewSubscriptions(env, { force: true, origin })).map((c) => view(c, env)) });
         }
         return json({ error: 'Not Found' }, 404);
     } catch (err) {
@@ -54,7 +52,7 @@ export async function handleApi(req, env, path) {
 
 async function listChannels(env, origin) {
     const channels = await loadChannels(env);
-    return json({ callbackUrl: callbackUrlFor(env, origin), channels: channels.map(publicChannel) });
+    return json({ callbackUrl: callbackUrlFor(env, origin), channels: channels.map((c) => view(c, env)) });
 }
 
 async function upsertChannel(req, env, origin, rawId) {
@@ -76,7 +74,7 @@ async function upsertChannel(req, env, origin, rawId) {
     else channels.push(channel);
     await saveChannels(env, channels);
     console.log(`[admin] ${existing ? 'Updated' : 'Added'} channel ${channel.name} (${id})`);
-    return json({ channel: publicChannel(channel) }, existing ? 200 : 201);
+    return json({ channel: view(channel, env) }, existing ? 200 : 201);
 }
 
 async function deleteChannel(env, rawId) {
@@ -86,6 +84,7 @@ async function deleteChannel(env, rawId) {
     if (!channel) return json({ error: 'Channel not found' }, 404);
 
     await saveChannels(env, channels.filter((c) => c !== channel));
+    await env.STORE.delete(lastPostKey(id));
     let unsubscribed = true;
     try {
         if (channel.callbackUrl) await subscribe({ channelId: id, callbackUrl: channel.callbackUrl, mode: 'unsubscribe' });
@@ -132,7 +131,7 @@ async function replaceChannels(req, env, origin) {
 
     await saveChannels(env, next);
     console.log(`[admin] Replaced channel list (${next.length} channels)`);
-    return json({ channels: next.map(publicChannel) });
+    return json({ channels: next.map((c) => view(c, env)) });
 }
 
 async function testChannel(env, rawId) {
@@ -159,18 +158,6 @@ async function testChannel(env, rawId) {
         throw new UserError(err.message);
     }
     return json({ sent: true });
-}
-
-async function hubDetails(env, rawId) {
-    const id = parseChannelId(decodeURIComponent(rawId));
-    const channel = (await loadChannels(env)).find((c) => c.channelId === id);
-    if (!channel) return json({ error: 'Channel not found' }, 404);
-    if (!channel.callbackUrl) throw new UserError('Not subscribed yet');
-    try {
-        return json(await subscriptionDetails({ channelId: id, callbackUrl: channel.callbackUrl, secret: env.HUB_SECRET }));
-    } catch (err) {
-        throw new UserError(`Couldn't reach the hub: ${err.message}`);
-    }
 }
 
 // Called by the cron (only channels due for renewal) and by
@@ -244,6 +231,16 @@ async function lookupChannelName(channelId) {
     } catch {
         return null;
     }
+}
+
+// What the admin page gets: the channel with its webhook token masked, plus
+// a link to the hub's details page (carrying HUB_SECRET, which the hub
+// requires for secret-protected subscriptions).
+function view(channel, env) {
+    const hubStatusUrl = channel.callbackUrl
+        ? subscriptionDetailsUrl({ channelId: channel.channelId, callbackUrl: channel.callbackUrl, secret: env.HUB_SECRET })
+        : undefined;
+    return { ...publicChannel(channel), hubStatusUrl };
 }
 
 async function authorized(req, env) {

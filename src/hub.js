@@ -1,7 +1,5 @@
 // PubSubHubbub (WebSub) helpers: subscribing and signature verification.
 
-import { decode } from './feed.js';
-
 const HUB_URL = 'https://pubsubhubbub.appspot.com/subscribe';
 const DETAILS_URL = 'https://pubsubhubbub.appspot.com/subscription-details';
 const LEASE_SECONDS = 432000; // 5 days, YouTube's max; the cron renews well before this
@@ -57,28 +55,10 @@ export async function verifySignature(rawBody, header, secret) {
     return crypto.subtle.verify('HMAC', key, sig, rawBody);
 }
 
-// Fetches the hub's subscription-details page as plain text. The hub only
-// shows a subscription made with a secret to someone who supplies that
-// secret, so this runs server-side rather than as a link in the browser.
-export async function subscriptionDetails({ channelId, callbackUrl, secret }) {
+// Link to the hub's page for one subscription. A subscription made with a
+// secret only shows its details when that secret is in the URL.
+export function subscriptionDetailsUrl({ channelId, callbackUrl, secret }) {
     const params = new URLSearchParams({ 'hub.callback': callbackUrl, 'hub.topic': topicFor(channelId) });
     if (secret) params.set('hub.secret', secret);
-    const res = await fetch(`${DETAILS_URL}?${params}`, { signal: AbortSignal.timeout(10000) });
-    let text = htmlToText(await res.text());
-    if (secret) text = text.replaceAll(secret, '••••••');
-    return { status: res.status, text };
-}
-
-export function htmlToText(html) {
-    return decode(
-        html
-            .replace(/<!--[\s\S]*?-->|<(head|script|style|textarea)[\s\S]*?<\/\1>/gi, '')
-            .replace(/<\/t[hd]>/gi, '\t')
-            .replace(/<(br|\/?(p|div|tr|li|dt|dd|h\d|table|ul|ol|dl))\b[^>]*>/gi, '\n')
-            .replace(/<[^>]+>/g, '')
-    )
-        .split('\n')
-        .map((line) => line.replace(/[ \t]+/g, ' ').trim())
-        .filter(Boolean)
-        .join('\n');
+    return `${DETAILS_URL}?${params}`;
 }
