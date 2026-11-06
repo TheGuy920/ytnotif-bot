@@ -94,7 +94,7 @@ Fill in the **Add a channel** form:
 | Name              | Optional label. If left blank, it's looked up from YouTube.                                       |
 | Discord webhook   | The webhook URL from step 1. It's checked with Discord before saving.                             |
 | Skip Shorts       | On by default.                                                                                    |
-| Re-post edits     | Post again when YouTube re-pings an already-announced video (e.g. a title edit).                  |
+| Re-post edits     | Post again when YouTube re-pings an already-announced video (e.g. a title edit). Off by default. |
 | Custom template   | Optional. See [Templates](#templates).                                                            |
 
 Saving adds the channel and asks the hub to subscribe. Then:
@@ -263,6 +263,7 @@ curl -X PUT https://<host>/api/channels/UCxxxxxxxxxxxxxxxxxxxxxx \
 | `WEBHOOK_*`     | secret | Optional. Discord webhook URLs referenced by name from channels.                         |
 | `READ_ONLY`     | var    | `"true"` makes the admin API reject every change. Set for Worker Previews.            |
 | `SEEN_TTL_DAYS` | var    | How long an announced video is remembered, counted from its publish date (default 30).   |
+| `NEW_VIDEO_WINDOW_HOURS` | var | How recently a never-announced video must have been published to count as a new upload (default 24). |
 | `CALLBACK_URL`  | var    | Optional. Pins the hub callback URL instead of using the admin page's host.              |
 
 ### Templates
@@ -303,8 +304,17 @@ channelId:videoId:expiresAtUnixSeconds
 ```
 
 The expiry is the video's publish time plus `SEEN_TTL_DAYS`. Expired lines are dropped the next time the list is
-written. Notifications for videos published more than `SEEN_TTL_DAYS` ago are ignored outright, because they're
-edit pings on old videos. That's why letting entries expire can't cause a re-post.
+written.
+
+YouTube's hub pings again whenever a video is edited (title, description, …), and an edit ping looks just like an
+upload. So a notification only posts when:
+
+- the video was published within the last `NEW_VIDEO_WINDOW_HOURS` (24) and isn't in the seen list yet, or
+- it's in the seen list and the channel has **Re-post edits** on.
+
+Everything else is skipped, with the reason in the logs. That covers edits to videos published before the Worker
+started tracking a channel, and to videos whose seen line has expired, so letting entries expire can't cause a
+re-post either.
 
 ### Free plan budget
 
@@ -374,6 +384,7 @@ src/
   channels.js    channel storage + validation, default template
   feed.js        Atom payload parser
   seen.js        seen-list format
+  policy.js      post-or-skip decision for each notification
   discord.js     template rendering + webhook sender
   hub.js         hub subscribe + signature check
   shorts.js      Shorts detection
