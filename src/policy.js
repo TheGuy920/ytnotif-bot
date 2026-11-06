@@ -2,12 +2,13 @@
 // Returns { post: true, expires } or { post: false, reason }.
 //
 //   publishedAt      the entry's <published> timestamp
+//   updatedAt        the entry's <updated> timestamp
 //   seen             whether this video is already in the seen list
 //   announceUpdates  the channel's "re-post edits" setting
 //   now              unix seconds
 //   ttlDays          SEEN_TTL_DAYS
-//   newWindowHours   NEW_VIDEO_WINDOW_HOURS
-export function classifyEntry({ publishedAt, seen, announceUpdates, now, ttlDays, newWindowHours }) {
+//   editGapMinutes   EDIT_GAP_MINUTES
+export function classifyEntry({ publishedAt, updatedAt, seen, announceUpdates, now, ttlDays, editGapMinutes }) {
     const published = Math.floor(Date.parse(publishedAt) / 1000) || now;
     const expires = published + ttlDays * 86400;
 
@@ -17,15 +18,23 @@ export function classifyEntry({ publishedAt, seen, announceUpdates, now, ttlDays
 
     if (seen) return announceUpdates ? { post: true, expires } : { post: false, reason: 'already announced.' };
 
-    // Never announced here. A real upload is pinged within minutes of being
-    // published, so an older video is an edit ping on something published
-    // before this Worker tracked the channel.
-    const ageHours = (now - published) / 3600;
-    if (ageHours > newWindowHours) {
+    // Never announced here: an edit ping has <updated> well after <published>,
+    // while a new upload's two timestamps are seconds apart (never exactly
+    // equal: <updated> carries fractional seconds). Without a usable
+    // <updated> there's nothing to compare, so treat it as new.
+    const updated = Date.parse(updatedAt) / 1000;
+    const gapMinutes = (updated - published) / 60;
+    if (gapMinutes > editGapMinutes) {
         return {
             post: false,
-            reason: `never announced here and published ${Math.round(ageHours)} h ago, so this is an edit ping, not a new upload.`,
+            reason: `never announced here and updated ${formatGap(gapMinutes)} after publishing, so this is an edit ping, not a new upload.`,
         };
     }
     return { post: true, expires };
+}
+
+function formatGap(minutes) {
+    if (minutes < 120) return `${Math.round(minutes)} min`;
+    if (minutes < 2880) return `${Math.round(minutes / 60)} h`;
+    return `${Math.round(minutes / 1440)} days`;
 }
