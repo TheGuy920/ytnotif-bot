@@ -263,7 +263,7 @@ curl -X PUT https://<host>/api/channels/UCxxxxxxxxxxxxxxxxxxxxxx \
 | `WEBHOOK_*`     | secret | Optional. Discord webhook URLs referenced by name from channels.                         |
 | `READ_ONLY`     | var    | `"true"` makes the admin API reject every change. Set for Worker Previews.            |
 | `SEEN_TTL_DAYS` | var    | How long an announced video is remembered, counted from its publish date (default 30).   |
-| `EDIT_GAP_MINUTES` | var | A never-announced video whose `updated` time is more than this many minutes after its `published` time is treated as an edit ping (default 10). |
+| `EDIT_GAP_MINUTES` | var | A never-announced video whose `updated` time is more than this many minutes after its `published` time is treated as an edit ping (default 60). |
 | `CALLBACK_URL`  | var    | Optional. Pins the hub callback URL instead of using the admin page's host.              |
 
 ### Templates
@@ -309,7 +309,7 @@ written.
 YouTube's hub pings again whenever a video is edited (title, description, …), and an edit ping looks just like an
 upload. So a notification only posts when:
 
-- the video isn't in the seen list yet and its `updated` time is within `EDIT_GAP_MINUTES` (10) of its `published`
+- the video isn't in the seen list yet and its `updated` time is within `EDIT_GAP_MINUTES` (60) of its `published`
   time (an edit moves `updated` forward), or
 - it's in the seen list and the channel has **Re-post edits** on.
 

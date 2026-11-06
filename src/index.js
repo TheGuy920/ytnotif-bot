@@ -88,7 +88,7 @@ async function processEntries(entries, env) {
 
     const now = nowSec();
     const ttlDays = Number(env.SEEN_TTL_DAYS || 30);
-    const editGapMinutes = Number(env.EDIT_GAP_MINUTES || 10);
+    const editGapMinutes = Number(env.EDIT_GAP_MINUTES || 60);
     const [channels, seenText] = await Promise.all([loadChannels(env), env.STORE.get(SEEN_KEY)]);
     const seen = parseSeen(seenText, now);
     const added = new Map();

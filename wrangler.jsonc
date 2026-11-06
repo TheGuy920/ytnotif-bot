@@ -27,7 +27,7 @@
 		"SEEN_TTL_DAYS": "30"
 		// Optional. A never-announced video whose <updated> is more than this
 		// many minutes after its <published> is an edit ping, not a new upload
-		// (default 10). "EDIT_GAP_MINUTES": "10"
+		// (default 60). "EDIT_GAP_MINUTES": "60"
 		// Optional. Pins the URL the hub calls. Without it, the hub is told to
 		// call back to whatever host the admin page is opened on, + /notifs.
 		// "CALLBACK_URL": "https://yt.example.com/notifs"

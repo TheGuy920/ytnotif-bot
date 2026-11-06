@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { classifyEntry } from '../src/policy.js';
 
 const NOW = Date.parse('2026-11-06T20:44:23Z') / 1000;
-const base = { now: NOW, ttlDays: 30, editGapMinutes: 10, announceUpdates: false, seen: false };
+const base = { now: NOW, ttlDays: 30, editGapMinutes: 60, announceUpdates: false, seen: false };
 const iso = (unix) => new Date(unix * 1000).toISOString();
 
 test('fresh upload (updated seconds after published) posts', () => {
@@ -25,7 +25,7 @@ test('edit ping on a never-announced video is skipped', () => {
 });
 
 test('re-post edits does not post never-announced edited videos either', () => {
-    const d = classifyEntry({ ...base, announceUpdates: true, publishedAt: iso(NOW - 3600), updatedAt: iso(NOW) });
+    const d = classifyEntry({ ...base, announceUpdates: true, publishedAt: iso(NOW - 2 * 3600), updatedAt: iso(NOW) });
     assert.equal(d.post, false);
 });
 
@@ -42,9 +42,11 @@ test('older than the seen TTL is always skipped', () => {
 });
 
 test('gap is configurable; missing or unparseable timestamps count as new', () => {
-    const entry = { publishedAt: iso(NOW - 1800), updatedAt: iso(NOW) }; // 30 min gap
+    const entry = { publishedAt: iso(NOW - 90 * 60), updatedAt: iso(NOW) }; // 90 min gap
     assert.equal(classifyEntry({ ...base, ...entry }).post, false);
-    assert.equal(classifyEntry({ ...base, ...entry, editGapMinutes: 60 }).post, true);
+    assert.equal(classifyEntry({ ...base, ...entry, editGapMinutes: 120 }).post, true);
+    // 45 min gap is still a new upload under the 60 min default.
+    assert.equal(classifyEntry({ ...base, publishedAt: iso(NOW - 45 * 60), updatedAt: iso(NOW) }).post, true);
     assert.equal(classifyEntry({ ...base, publishedAt: iso(NOW - 60), updatedAt: '' }).post, true);
     assert.equal(classifyEntry({ ...base, publishedAt: 'garbage', updatedAt: 'garbage' }).post, true);
 });
