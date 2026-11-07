@@ -94,7 +94,7 @@ Fill in the **Add a channel** form:
 | Name              | Optional label. If left blank, it's looked up from YouTube.                                       |
 | Discord webhook   | The webhook URL from step 1. It's checked with Discord before saving.                             |
 | Skip Shorts       | On by default.                                                                                    |
-| Re-post edits     | Post again when YouTube re-pings an already-announced video (e.g. a title edit).                  |
+| Re-post edits     | Post again when YouTube re-pings an already-announced video (e.g. a title edit). Off by default. |
 | Custom template   | Optional. See [Templates](#templates).                                                            |
 
 Saving adds the channel and asks the hub to subscribe. Then:
@@ -263,6 +263,7 @@ curl -X PUT https://<host>/api/channels/UCxxxxxxxxxxxxxxxxxxxxxx \
 | `WEBHOOK_*`     | secret | Optional. Discord webhook URLs referenced by name from channels.                         |
 | `READ_ONLY`     | var    | `"true"` makes the admin API reject every change. Set for Worker Previews.            |
 | `SEEN_TTL_DAYS` | var    | How long an announced video is remembered, counted from its publish date (default 30).   |
+| `EDIT_GAP_MINUTES` | var | A never-announced video whose `updated` time is more than this many minutes after its `published` time is treated as an edit ping (default 60). |
 | `CALLBACK_URL`  | var    | Optional. Pins the hub callback URL instead of using the admin page's host.              |
 
 ### Templates
@@ -303,8 +304,21 @@ channelId:videoId:expiresAtUnixSeconds
 ```
 
 The expiry is the video's publish time plus `SEEN_TTL_DAYS`. Expired lines are dropped the next time the list is
-written. Notifications for videos published more than `SEEN_TTL_DAYS` ago are ignored outright, because they're
-edit pings on old videos. That's why letting entries expire can't cause a re-post.
+written.
+
+YouTube's hub pings again whenever a video is edited (title, description, …), and an edit ping looks just like an
+upload. So a notification only posts when:
+
+- the video isn't in the seen list yet and its `updated` time is within `EDIT_GAP_MINUTES` (60) of its `published`
+  time (an edit moves `updated` forward), or
+- it's in the seen list and the channel has **Re-post edits** on.
+
+Everything else is skipped, with the reason in the logs. That covers edits to videos published before the Worker
+started tracking a channel, and to videos whose seen line has expired, so letting entries expire can't cause a
+re-post either.
+
+Known gap: a members-only video that later goes public is skipped too, because its ping looks the same as an edit
+ping. See [TODO](#todo).
 
 ### Free plan budget
 
@@ -374,6 +388,7 @@ src/
   channels.js    channel storage + validation, default template
   feed.js        Atom payload parser
   seen.js        seen-list format
+  policy.js      post-or-skip decision for each notification
   discord.js     template rendering + webhook sender
   hub.js         hub subscribe + signature check
   shorts.js      Shorts detection
@@ -382,6 +397,22 @@ scripts/
 test/            unit tests + fixture payloads
 channels.example.json   example channel list for a bulk import
 ```
+
+## TODO
+
+- **Post members-only videos when they go public.** YouTube doesn't appear to send hub notifications for
+  members-only uploads, and when one goes public the ping looks exactly like an edit ping on an old video: never
+  seen here, with `updated` long after `published`. So today it's skipped. The ping itself can't tell the two apart,
+  and neither can oEmbed (it answers the same for members-only and public videos). The watch page and player API
+  are behind YouTube's bot checks from Cloudflare's IPs. Planned approach, using a YouTube Data API key:
+  - record each tracked channel's public videos when it's added (its uploads playlist minus its members-only
+    `UUMO…` playlist);
+  - treat a ping for any video not yet known as "just became visible" and post it regardless of age (new
+    uploads, members-only or private videos going public, premieres);
+  - treat known videos' pings as edits (skip, or re-post with **Re-post edits**).
+
+  To verify first: that the `UUMO…` playlist can be read through the Data API, and whether the uploads playlist
+  includes members-only videos.
 
 ## License
 

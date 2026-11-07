@@ -6,6 +6,7 @@ import { SEEN_KEY, parseSeen, serializeSeen, seenKey, nowSec } from './seen.js';
 import { render, sendDiscordMessage } from './discord.js';
 import { verifySignature, channelIdFromTopic } from './hub.js';
 import { isShort } from './shorts.js';
+import { classifyEntry } from './policy.js';
 import ADMIN_HTML from './admin.html';
 
 const NOTIFY_PATH = '/notifs';
@@ -87,6 +88,7 @@ async function processEntries(entries, env) {
 
     const now = nowSec();
     const ttlDays = Number(env.SEEN_TTL_DAYS || 30);
+    const editGapMinutes = Number(env.EDIT_GAP_MINUTES || 60);
     const [channels, seenText] = await Promise.all([loadChannels(env), env.STORE.get(SEEN_KEY)]);
     const seen = parseSeen(seenText, now);
     const added = new Map();
@@ -100,20 +102,21 @@ async function processEntries(entries, env) {
         }
         console.log(`${tag} "${entry.videoTitle}" published=${entry.publishedAt} updated=${entry.updatedAt}`);
 
-        // Expire the seen line TTL after publishing. Anything published longer
-        // ago than that is an edit ping on an old video, never a new upload.
-        const published = Math.floor(Date.parse(entry.publishedAt) / 1000) || now;
-        const expires = published + ttlDays * 86400;
-        if (expires <= now) {
-            console.log(`${tag} Skipping: published over ${ttlDays} days ago (edit ping).`);
-            continue;
-        }
-
         const key = seenKey(entry.channelId, entry.videoId);
-        if ((seen.has(key) || added.has(key)) && !channel.announceUpdates) {
-            console.log(`${tag} Skipping: already announced.`);
+        const decision = classifyEntry({
+            publishedAt: entry.publishedAt,
+            updatedAt: entry.updatedAt,
+            seen: seen.has(key) || added.has(key),
+            announceUpdates: channel.announceUpdates,
+            now,
+            ttlDays,
+            editGapMinutes,
+        });
+        if (!decision.post) {
+            console.log(`${tag} Skipping: ${decision.reason}`);
             continue;
         }
+        const { expires } = decision;
 
         if (channel.filterShorts ?? true) {
             const short = await isShort(entry.videoId, entry.videoUrl);
