@@ -317,6 +317,9 @@ Everything else is skipped, with the reason in the logs. That covers edits to vi
 started tracking a channel, and to videos whose seen line has expired, so letting entries expire can't cause a
 re-post either.
 
+Known gap: a members-only video that later goes public is skipped too, because its ping looks the same as an edit
+ping. See [TODO](#todo).
+
 ### Free plan budget
 
 - **Notifications:** two KV reads each (channels and seen). KV is written only after a post (seen list plus the
@@ -394,6 +397,22 @@ scripts/
 test/            unit tests + fixture payloads
 channels.example.json   example channel list for a bulk import
 ```
+
+## TODO
+
+- **Post members-only videos when they go public.** YouTube doesn't appear to send hub notifications for
+  members-only uploads, and when one goes public the ping looks exactly like an edit ping on an old video: never
+  seen here, with `updated` long after `published`. So today it's skipped. The ping itself can't tell the two apart,
+  and neither can oEmbed (it answers the same for members-only and public videos). The watch page and player API
+  are behind YouTube's bot checks from Cloudflare's IPs. Planned approach, using a YouTube Data API key:
+  - record each tracked channel's public videos when it's added (its uploads playlist minus its members-only
+    `UUMO…` playlist);
+  - treat a ping for any video not yet known as "just became visible" and post it regardless of age (new
+    uploads, members-only or private videos going public, premieres);
+  - treat known videos' pings as edits (skip, or re-post with **Re-post edits**).
+
+  To verify first: that the `UUMO…` playlist can be read through the Data API, and whether the uploads playlist
+  includes members-only videos.
 
 ## License
 
